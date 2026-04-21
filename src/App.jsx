@@ -525,12 +525,16 @@ export default function App() {
     const [camStatus, setCamStatus] = useState('checking'); 
 
     useEffect(() => {
+      // 1. Cek apakah perangkat punya kamera
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
          setCamStatus('error');
          return;
       }
-      navigator.mediaDevices.getUserMedia({ video: true })
+      
+      // 2. Minta izin akses kamera
+      navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
         .then((stream) => {
+          // Matikan dulu stream tesnya agar tidak bentrok dengan scanner
           stream.getTracks().forEach(track => track.stop());
           setCamStatus('ready');
         })
@@ -543,13 +547,24 @@ export default function App() {
     useEffect(() => {
       if (camStatus !== 'ready' || !isScannerReady || !window.Html5QrcodeScanner) return;
       
-      const scanner = new window.Html5QrcodeScanner("qr-reader", { fps: 10, qrbox: {width: 250, height: 250} }, false);
-      scanner.render(
-        (decodedText) => { scanner.clear(); onSuccess(decodedText, target); },
-        (error) => {} 
+      // Matikan scanner yang lama jika ada (mencegah bentrok)
+      const html5QrcodeScanner = new window.Html5QrcodeScanner(
+        "qr-reader", 
+        { fps: 10, qrbox: {width: 250, height: 250}, rememberLastUsedCamera: true }, 
+        false
       );
       
-      return () => { scanner.clear().catch(e => console.log(e)); };
+      html5QrcodeScanner.render(
+        (decodedText) => { 
+          html5QrcodeScanner.clear(); 
+          onSuccess(decodedText, target); 
+        },
+        (error) => { /* Abaikan error pembacaan frame per detik */ } 
+      );
+      
+      return () => { 
+        html5QrcodeScanner.clear().catch(e => console.log("Cleanup kamera:", e)); 
+      };
     }, [target, isScannerReady, onSuccess, camStatus]);
 
     return (
@@ -564,14 +579,14 @@ export default function App() {
             {camStatus === 'checking' || !isScannerReady ? (
               <div className="p-8 text-center text-slate-500 flex flex-col items-center">
                 <Loader2 className="animate-spin mb-2 text-indigo-500" size={32} /> 
-                <p className="text-sm font-medium">Memeriksa akses kamera...</p>
+                <p className="text-sm font-medium">Meminta izin kamera...</p>
               </div>
             ) : camStatus === 'error' ? (
               <div className="p-6 w-full bg-red-50 border border-red-100 rounded-xl text-center">
                 <div className="text-red-500 mb-3 flex justify-center"><Camera size={36} /></div>
                 <h4 className="font-bold text-red-700 text-lg mb-1">Kamera Diblokir</h4>
-                <p className="text-xs text-red-600 font-medium">
-                  Browser/Perangkat memblokir akses kamera. Jika Anda berada di mode Pratinjau (Preview), kamera sengaja diblokir oleh sistem keamanan Iframe.
+                <p className="text-xs text-red-600 font-medium mb-3">
+                  Browser HP Anda memblokir akses kamera. Pastikan Anda mengizinkan akses kamera dan membuka aplikasi ini menggunakan Link Vercel (https).
                 </p>
               </div>
             ) : (
