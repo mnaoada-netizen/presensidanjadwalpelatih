@@ -4,13 +4,13 @@ import {
   Settings, Bell, Search, Plus, QrCode, UserPlus, 
   Send, Clock, Menu, X, Printer, Briefcase,
   LogOut, Lock, User, Camera, Loader2, Pencil, MapPin,
-  Key, RefreshCcw
+  Key, RefreshCcw, Trash2, AlertTriangle
 } from 'lucide-react';
 
 // --- FIREBASE IMPORTS ---
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, collection, onSnapshot, doc, setDoc, updateDoc, addDoc, getDocs } from 'firebase/firestore';
+import { getFirestore, collection, onSnapshot, doc, setDoc, updateDoc, addDoc, getDocs, deleteDoc } from 'firebase/firestore';
 
 // --- FIREBASE SETUP ---
 const myFirebaseConfig = {
@@ -30,7 +30,9 @@ const firebaseConfig = typeof __firebase_config !== 'undefined'
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'kaderisasi-apps-v1';
+
+// Sanitasi ID Aplikasi untuk mencegah error pada path database
+const appId = typeof __app_id !== 'undefined' ? String(__app_id).replace(/\//g, '-') : 'kaderisasi-apps-v1';
 
 const daftarKecamatan = [
   'Buaran', 'Tirto', 'Kedungwuni', 'Wonopringgo', 'Karangdadap', 
@@ -39,11 +41,88 @@ const daftarKecamatan = [
   'Siwalan', 'Wonokerto', 'Wiradesa', 'Bojong'
 ];
 
+// --- KOMPONEN SCANNER EKSTERNAL ---
+const ScannerModal = ({ target, onClose, onSuccess, addToast }) => {
+  const scannerRef = useRef(null);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      startScanner();
+    }, 500);
+
+    const startScanner = () => {
+      if (!window.Html5QrcodeScanner) {
+        console.error("Mesin scanner belum dimuat di index.html");
+        return;
+      }
+
+      scannerRef.current = new window.Html5QrcodeScanner(
+        "qr-reader",
+        { 
+          fps: 10, 
+          qrbox: { width: 250, height: 250 },
+          aspectRatio: 1.0,
+          videoConstraints: {
+            facingMode: "environment" 
+          }
+        },
+        false
+      );
+
+      scannerRef.current.render(
+        (decodedText) => {
+          scannerRef.current.clear().then(() => {
+            onSuccess(decodedText, target);
+          });
+        },
+        (error) => { /* Scanning... */ }
+      );
+    };
+
+    return () => {
+      clearTimeout(timer);
+      if (scannerRef.current) {
+        scannerRef.current.clear().catch(e => console.log("Cleanup error", e));
+      }
+    };
+  }, [onSuccess, target]);
+
+  return (
+    <div className="fixed inset-0 bg-black/90 z-[70] flex flex-col items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+        <div className="flex justify-between items-center p-4 border-b bg-slate-50">
+          <h3 className="font-bold text-slate-800">Scan QR Code {target.type === 'datang' ? 'Datang' : 'Pulang'}</h3>
+          <button onClick={onClose} className="p-2 bg-slate-200 rounded-full hover:bg-slate-300 transition">
+            <X size={20} />
+          </button>
+        </div>
+        
+        <div className="p-6">
+          <div id="qr-reader" className="w-full overflow-hidden rounded-xl border-2 border-emerald-500 bg-black min-h-[250px]"></div>
+          <p className="text-center text-xs text-slate-500 mt-4 leading-relaxed">
+            Arahkan ke QR Global Admin. Pastikan Anda memberikan <b>Izin Kamera</b> di browser HP.
+          </p>
+          
+          <button 
+            onClick={() => { addToast('Menggunakan simulasi bypass', 'info'); onSuccess('PRESENSI-PELATIH-GLOBAL', target); }}
+            className="w-full mt-6 py-3 border-2 border-dashed border-slate-300 text-slate-400 text-xs font-bold rounded-xl hover:border-emerald-300 hover:text-emerald-500 transition bg-slate-50"
+          >
+            [Opsi Dev] Simulasi Scan Tanpa Kamera
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export default function App() {
   // --- STATES CLOUD & KONEKSI ---
   const [firebaseUser, setFirebaseUser] = useState(null);
   const [isDbLoading, setIsDbLoading] = useState(true);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
+  
+  // Penampung status error izin database
+  const [dbPermissionError, setDbPermissionError] = useState(false);
 
   // States untuk Auth Aplikasi (Login Form)
   const [currentUser, setCurrentUser] = useState(null);
@@ -64,11 +143,9 @@ export default function App() {
   const [isAddPelatihModalOpen, setIsAddPelatihModalOpen] = useState(false);
   const [newPelatih, setNewPelatih] = useState({ nama: '', alamat: '', wa: '', bidang: '', status: 'Aktif' });
   
-  // States untuk Modal Registrasi Pelatih (Public)
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
   const [registerData, setRegisterData] = useState({ nama: '', alamat: '', wa: '', bidang: '' });
 
-  // States untuk Edit Pelatih
   const [isEditPelatihModalOpen, setIsEditPelatihModalOpen] = useState(false);
   const [editPelatihData, setEditPelatihData] = useState(null);
 
@@ -76,20 +153,15 @@ export default function App() {
   const [newJadwal, setNewJadwal] = useState({ materi: '', pelatih: '', waPelatih: '', tanggal: '', waktuMulai: '', waktuSelesai: '', tempat: '', kuota: '', kecamatan: 'Buaran', waktuDatang: '-', waktuPulang: '-' });
   const [autoSendWA, setAutoSendWA] = useState(true);
 
-  // State untuk Modal QR & Blast
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
   const [isBlastModalOpen, setIsBlastModalOpen] = useState(false);
   const [blastTargets, setBlastTargets] = useState([]);
   const [blastMessage, setBlastMessage] = useState('Halo {nama_pelatih},\n\nMengingatkan kembali untuk jadwal pengisian materi *{materi}* pada tanggal {tanggal} di {tempat}.\n\nTerima kasih!');
 
-  // State untuk Presensi Pelatih
   const [selectedJadwalPresensi, setSelectedJadwalPresensi] = useState('');
-
-  // State untuk Scanner Kamera Pelatih
   const [scanTarget, setScanTarget] = useState(null);
   const [isScannerReady, setIsScannerReady] = useState(false);
 
-  // State untuk Ganti Password
   const [isChangePassModalOpen, setIsChangePassModalOpen] = useState(false);
   const [changePassData, setChangePassData] = useState({ oldPass: '', newPass: '', confirmPass: '' });
   const [changePassError, setChangePassError] = useState('');
@@ -136,6 +208,15 @@ export default function App() {
 
     let isMounted = true;
 
+    // Fungsi penangkap error Permissions dari Firebase
+    const handlePermissionError = (err, module) => {
+      console.error(`Sync ${module} Error:`, err);
+      setIsDbLoading(false);
+      if (err.message.includes('permissions') || err.message.includes('Missing')) {
+        setDbPermissionError(true);
+      }
+    };
+
     const checkAndSeedData = async () => {
       try {
         const pSnap = await getDocs(pelatihRef);
@@ -146,7 +227,7 @@ export default function App() {
           ];
           initialPelatih.forEach(p => addDoc(pelatihRef, p));
         }
-      } catch(err) { console.error("Seeding Error:", err); }
+      } catch(err) { handlePermissionError(err, 'Seeding'); }
     };
     checkAndSeedData();
 
@@ -159,7 +240,7 @@ export default function App() {
         setPelatih(data);
         setIsDbLoading(false); 
       }, 
-      (err) => { console.error("Sync Pelatih Error:", err); setIsDbLoading(false); }
+      (err) => handlePermissionError(err, 'Pelatih')
     );
 
     const unsubJadwal = onSnapshot(
@@ -170,7 +251,7 @@ export default function App() {
         data.sort((a, b) => (b.displayId > a.displayId) ? 1 : -1);
         setJadwal(data);
       }, 
-      (err) => { console.error("Sync Jadwal Error:", err); }
+      (err) => handlePermissionError(err, 'Jadwal')
     );
 
     const unsubLogs = onSnapshot(
@@ -181,7 +262,7 @@ export default function App() {
         data.sort((a, b) => b.timestamp - a.timestamp);
         setWaLogs(data);
       }, 
-      (err) => { console.error("Sync Logs Error:", err); }
+      (err) => handlePermissionError(err, 'Logs')
     );
 
     return () => {
@@ -250,10 +331,7 @@ export default function App() {
 
   const handleRegisterPelatih = async (e) => {
     e.preventDefault();
-    if (!firebaseUser) {
-      addToast('Koneksi Cloud terputus! Cek pengaturan database.', 'error');
-      return;
-    }
+    if (!firebaseUser) return;
 
     addToast('Mendaftarkan data ke sistem...', 'info');
     const displayId = `P${String(pelatih.length + 1).padStart(3, '0')}`;
@@ -272,10 +350,9 @@ export default function App() {
       });
       setIsRegisterModalOpen(false);
       setRegisterData({ nama: '', alamat: '', wa: '', bidang: '' });
-      addToast('Registrasi berhasil! Silakan Login menggunakan nama Anda dengan Password default: 123', 'success');
+      addToast('Registrasi berhasil! Silakan Login menggunakan nama Anda', 'success');
     } catch (error) {
       addToast('Gagal melakukan pendaftaran.', 'error');
-      console.error(error);
     }
   };
 
@@ -289,14 +366,10 @@ export default function App() {
     addToast('Anda telah logout.', 'info');
   };
 
-  // --- CRUD CLOUD FIRESTORE (PELATIH & JADWAL) ---
-
+  // --- CRUD CLOUD FIRESTORE ---
   const submitAddPelatih = async (e) => {
     e.preventDefault();
-    if (!firebaseUser) {
-      addToast('Koneksi Cloud terputus! Cek pengaturan Anonymous Auth.', 'error');
-      return;
-    }
+    if (!firebaseUser) return;
 
     addToast('Menyimpan ke Cloud...', 'info');
     const displayId = `P${String(pelatih.length + 1).padStart(3, '0')}`;
@@ -310,7 +383,6 @@ export default function App() {
       addToast('Data pelatih berhasil disimpan di Cloud!', 'success');
     } catch (error) {
       addToast('Gagal menyimpan data.', 'error');
-      console.error(error);
     }
   };
 
@@ -335,7 +407,6 @@ export default function App() {
       addToast('Data pelatih berhasil diperbarui!', 'success');
     } catch (error) {
       addToast('Gagal memperbarui data.', 'error');
-      console.error(error);
     }
   };
 
@@ -357,7 +428,6 @@ export default function App() {
       addToast(`Password ${p.nama} berhasil direset ke 123!`, 'success');
     } catch (error) {
       addToast('Gagal mereset password.', 'error');
-      console.error(error);
     }
   };
 
@@ -371,12 +441,8 @@ export default function App() {
     }
 
     const userInDb = pelatih.find(p => p.docId === currentUser.docId);
-    if (!userInDb) {
-      setChangePassError('Data pengguna tidak ditemukan di database.');
-      return;
-    }
-
-    const currentDbPassword = userInDb.password || '123';
+    const currentDbPassword = userInDb?.password || '123';
+    
     if (changePassData.oldPass !== currentDbPassword) {
       setChangePassError('Password Lama salah!');
       return;
@@ -393,7 +459,6 @@ export default function App() {
       addToast('Password berhasil diganti!', 'success');
     } catch (error) {
       setChangePassError('Gagal mengubah password di database.');
-      console.error(error);
     }
   };
 
@@ -413,13 +478,25 @@ export default function App() {
       addToast('Jadwal baru berhasil disimpan di Cloud!', 'success');
 
       if (autoSendWA && addedJadwal.waPelatih) {
-        setTimeout(() => {
-          sendWhatsAppMock(addedJadwal.pelatih, 'Jadwal Pemateri Baru');
-        }, 1000);
+        setTimeout(() => sendWhatsAppMock(addedJadwal.pelatih, 'Jadwal Pemateri Baru'), 1000);
       }
     } catch (error) {
       addToast('Gagal menyimpan jadwal.', 'error');
-      console.error(error);
+    }
+  };
+
+  const handleDeleteJadwal = async (id, materi) => {
+    if (!firebaseUser) return;
+    
+    const confirmDelete = window.confirm(`Apakah Anda yakin ingin MENGHAPUS jadwal "${materi}" secara permanen?`);
+    if (!confirmDelete) return;
+
+    addToast('Menghapus jadwal...', 'info');
+    try {
+      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'kader_jadwal', id));
+      addToast('Jadwal berhasil dihapus!', 'success');
+    } catch (error) {
+      addToast('Gagal menghapus jadwal.', 'error');
     }
   };
 
@@ -438,7 +515,6 @@ export default function App() {
       addToast(`Presensi ${type} tersimpan di Cloud pada ${now} WIB`, 'success');
     } catch (error) {
       addToast('Gagal mencatat presensi di Cloud.', 'error');
-      console.error(error);
     }
   };
 
@@ -448,26 +524,17 @@ export default function App() {
     const logsRef = collection(db, 'artifacts', appId, 'public', 'data', 'kader_logs');
     
     try {
-      await addDoc(logsRef, {
-        target: target,
-        type: type,
-        status: status,
-        waktu: timestamp24h,
-        timestamp: Date.now()
-      });
+      await addDoc(logsRef, { target, type, status, waktu: timestamp24h, timestamp: Date.now() });
     } catch (error) {
       console.error("Gagal mencatat log", error);
     }
   };
 
   // --- WA INTEGRATION ---
-
   const openWhatsAppWeb = (phone, text, targetName, type) => {
     const cleanPhone = phone.replace(/\D/g, '');
     const encodedText = encodeURIComponent(text);
-    const waUrl = `https://wa.me/${cleanPhone}?text=${encodedText}`;
-    
-    window.open(waUrl, '_blank', 'noopener,noreferrer');
+    window.open(`https://wa.me/${cleanPhone}?text=${encodedText}`, '_blank', 'noopener,noreferrer');
     addToast(`Membuka WhatsApp untuk ${targetName}...`, 'success');
     addLogToCloud(targetName, type, 'Dialihkan ke WA App');
   };
@@ -503,14 +570,11 @@ export default function App() {
     
     setTimeout(() => {
       addToast(`Berhasil broadcast jadwal ke ${blastTargets.length} pelatih!`, 'success');
-      blastTargets.forEach(p => {
-        addLogToCloud(p.pelatih, 'Blast Jadwal Pelatih', 'Terkirim');
-      });
+      blastTargets.forEach(p => addLogToCloud(p.pelatih, 'Blast Jadwal Pelatih', 'Terkirim'));
     }, 2000);
   };
 
   // --- SCANNER & PDF ---
-
   const onScanSuccess = (decodedText, target) => {
     if (decodedText === 'PRESENSI-PELATIH-GLOBAL') {
       handlePelatihPresensi(target.id, target.type);
@@ -519,92 +583,6 @@ export default function App() {
       addToast('QR Code tidak valid untuk presensi sistem ini!', 'error');
       setScanTarget(null);
     }
-  };
-
-  const ScannerModal = ({ target, onClose, onSuccess }) => {
-    const [camStatus, setCamStatus] = useState('checking'); 
-
-    useEffect(() => {
-      // 1. Cek apakah perangkat punya kamera
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-         setCamStatus('error');
-         return;
-      }
-      
-      // 2. Minta izin akses kamera
-      navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
-        .then((stream) => {
-          // Matikan dulu stream tesnya agar tidak bentrok dengan scanner
-          stream.getTracks().forEach(track => track.stop());
-          setCamStatus('ready');
-        })
-        .catch((err) => {
-          console.error("Akses kamera ditolak/gagal:", err);
-          setCamStatus('error');
-        });
-    }, []);
-
-    useEffect(() => {
-      if (camStatus !== 'ready' || !isScannerReady || !window.Html5QrcodeScanner) return;
-      
-      // Matikan scanner yang lama jika ada (mencegah bentrok)
-      const html5QrcodeScanner = new window.Html5QrcodeScanner(
-        "qr-reader", 
-        { fps: 10, qrbox: {width: 250, height: 250}, rememberLastUsedCamera: true }, 
-        false
-      );
-      
-      html5QrcodeScanner.render(
-        (decodedText) => { 
-          html5QrcodeScanner.clear(); 
-          onSuccess(decodedText, target); 
-        },
-        (error) => { /* Abaikan error pembacaan frame per detik */ } 
-      );
-      
-      return () => { 
-        html5QrcodeScanner.clear().catch(e => console.log("Cleanup kamera:", e)); 
-      };
-    }, [target, isScannerReady, onSuccess, camStatus]);
-
-    return (
-      <div className="fixed inset-0 bg-black/80 z-[60] flex flex-col items-center justify-center p-4">
-        <div className="bg-white rounded-xl shadow-lg w-full max-w-md overflow-hidden flex flex-col">
-          <div className="flex justify-between items-center p-4 border-b border-slate-100 bg-slate-50">
-            <h3 className="font-bold text-lg text-slate-800">Scan Presensi {target.type === 'datang' ? 'Datang' : 'Pulang'}</h3>
-            <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X size={20}/></button>
-          </div>
-          <div className="p-4 flex flex-col items-center">
-            
-            {camStatus === 'checking' || !isScannerReady ? (
-              <div className="p-8 text-center text-slate-500 flex flex-col items-center">
-                <Loader2 className="animate-spin mb-2 text-indigo-500" size={32} /> 
-                <p className="text-sm font-medium">Meminta izin kamera...</p>
-              </div>
-            ) : camStatus === 'error' ? (
-              <div className="p-6 w-full bg-red-50 border border-red-100 rounded-xl text-center">
-                <div className="text-red-500 mb-3 flex justify-center"><Camera size={36} /></div>
-                <h4 className="font-bold text-red-700 text-lg mb-1">Kamera Diblokir</h4>
-                <p className="text-xs text-red-600 font-medium mb-3">
-                  Browser HP Anda memblokir akses kamera. Pastikan Anda mengizinkan akses kamera dan membuka aplikasi ini menggunakan Link Vercel (https).
-                </p>
-              </div>
-            ) : (
-              <div id="qr-reader" className="w-full max-w-[300px] overflow-hidden rounded-lg border-2 border-indigo-100 bg-black"></div>
-            )}
-            
-            <p className="text-center text-sm text-slate-500 mt-4">Arahkan kamera ke <b>QR Code Global</b> yang ditampilkan oleh Admin Kabupaten.</p>
-            
-            <div className="mt-6 pt-4 border-t border-slate-100 w-full">
-              <button onClick={() => { addToast('Menggunakan simulasi bypass', 'info'); onSuccess('PRESENSI-PELATIH-GLOBAL', target); }} className="w-full text-xs font-bold text-slate-500 hover:text-indigo-600 bg-slate-100 hover:bg-indigo-50 py-3 rounded-lg transition border border-slate-200">
-                [Opsi Dev] Simulasi Scan Berhasil Tanpa Kamera
-              </button>
-            </div>
-            
-          </div>
-        </div>
-      </div>
-    );
   };
 
   const handleCetakPresensi = () => {
@@ -639,9 +617,9 @@ export default function App() {
         <style>
           body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 40px; color: #333; max-width: 1000px; margin: auto; }
           .no-print { text-align: right; margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px dashed #cbd5e1; }
-          .btn-print { background: #2563eb; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-weight: bold; font-size: 14px; }
-          .header { text-align: center; border-bottom: 2px solid #2563eb; padding-bottom: 20px; margin-bottom: 30px; }
-          .header h1 { margin: 0; color: #1e40af; font-size: 24px; text-transform: uppercase; }
+          .btn-print { background: #10b981; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-weight: bold; font-size: 14px; }
+          .header { text-align: center; border-bottom: 2px solid #10b981; padding-bottom: 20px; margin-bottom: 30px; }
+          .header h1 { margin: 0; color: #047857; font-size: 24px; text-transform: uppercase; }
           table { width: 100%; border-collapse: collapse; margin-bottom: 30px; font-size: 14px; }
           th, td { border: 1px solid #cbd5e1; padding: 12px; text-align: left; }
           th { background-color: #f1f5f9; font-weight: bold; font-size: 12px;}
@@ -670,7 +648,7 @@ export default function App() {
   const renderPanelPresensi = (myJadwal) => (
     <div className="mt-8 bg-white rounded-xl shadow-sm border border-slate-100 p-6">
       <div className="flex flex-col sm:flex-row sm:items-center gap-4 mb-6">
-        <div className="p-4 bg-indigo-100 text-indigo-600 rounded-full w-max">
+        <div className="p-4 bg-emerald-100 text-emerald-600 rounded-full w-max">
           <QrCode size={28} />
         </div>
         <div>
@@ -688,7 +666,7 @@ export default function App() {
             <select 
               value={selectedJadwalPresensi}
               onChange={(e) => setSelectedJadwalPresensi(e.target.value)}
-              className="w-full border border-slate-200 rounded-lg p-3 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none"
+              className="w-full border border-slate-200 rounded-lg p-3 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none"
             >
               <option value="">-- Silakan Pilih Jadwal --</option>
               {myJadwal.map(j => (
@@ -740,12 +718,12 @@ export default function App() {
     return (
       <div className={`${isSidebarOpen ? 'block' : 'hidden'} md:block w-64 bg-slate-900 text-white min-h-screen flex flex-col transition-all duration-300 z-20`}>
         <div className="p-5 flex items-center justify-between border-b border-slate-800">
-          <h1 className="text-xl font-bold tracking-wider text-blue-400">KADER<span className="text-white">PRO</span></h1>
+          <h1 className="text-xl font-bold tracking-wider text-emerald-500">KADER<span className="text-white">PRO</span></h1>
           <button className="md:hidden" onClick={() => setIsSidebarOpen(false)}><X size={24} /></button>
         </div>
         <div className="flex-1 py-6 flex flex-col gap-2 px-3">
           {menus.map(item => (
-            <button key={item.id} onClick={() => { setActiveTab(item.id); setIsSidebarOpen(false); }} className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === item.id ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800 hover:text-white'}`}>
+            <button key={item.id} onClick={() => { setActiveTab(item.id); setIsSidebarOpen(false); }} className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === item.id ? 'bg-emerald-600 text-white' : 'text-slate-300 hover:bg-slate-800 hover:text-white'}`}>
               {item.icon} <span className="font-medium">{item.label}</span>
             </button>
           ))}
@@ -755,14 +733,13 @@ export default function App() {
   };
 
   const DashboardView = () => {
-    // --- DASHBOARD ADMIN ---
     if (currentUser?.role === 'admin') {
       return (
         <div className="space-y-6">
           <h2 className="text-2xl font-bold text-slate-800">Dashboard Utama</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex items-center gap-4">
-              <div className="p-4 bg-blue-100 text-blue-600 rounded-full"><Briefcase size={28} /></div>
+              <div className="p-4 bg-emerald-100 text-emerald-600 rounded-full"><Briefcase size={28} /></div>
               <div><p className="text-sm text-slate-500 font-medium">Total Pelatih</p><p className="text-3xl font-bold text-slate-800">{pelatih.length}</p></div>
             </div>
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex items-center gap-4">
@@ -784,9 +761,9 @@ export default function App() {
                     <div>
                       <h4 className="font-semibold text-slate-800">{j.materi}</h4>
                       <p className="text-sm text-slate-500 flex items-center gap-1 mt-1"><Clock size={14}/> {j.tanggal} | {j.waktuMulai} - {j.waktuSelesai}</p>
-                      <p className="text-xs text-indigo-600 font-medium mt-1">Satkoryon {j.kecamatan}</p>
+                      <p className="text-xs text-emerald-600 font-medium mt-1">Satkoryon {j.kecamatan}</p>
                     </div>
-                    <button onClick={() => sendWhatsAppMock(`Peserta ${j.materi}`, 'Reminder H-1')} className="px-3 py-1.5 bg-blue-100 text-blue-700 text-sm rounded-md font-medium hover:bg-blue-200">Auto-Remind WA</button>
+                    <button onClick={() => sendWhatsAppMock(`Peserta ${j.materi}`, 'Reminder H-1')} className="px-3 py-1.5 bg-emerald-100 text-emerald-700 text-sm rounded-md font-medium hover:bg-emerald-200">Auto-Remind WA</button>
                   </div>
                 ))}
               </div>
@@ -808,15 +785,14 @@ export default function App() {
       );
     }
 
-    // --- DASHBOARD PELATIH ---
     const myJadwal = jadwal.filter(j => j.pelatih === currentUser.name);
     const jadwalHadir = myJadwal.filter(j => j.waktuDatang !== '-').length;
 
     return (
       <div className="space-y-6">
-        <div className="bg-blue-600 rounded-2xl p-6 text-white shadow-md">
+        <div className="bg-emerald-600 rounded-2xl p-6 text-white shadow-md">
           <h2 className="text-2xl font-bold mb-1">Selamat Datang, {currentUser.name}!</h2>
-          <p className="text-blue-100 text-sm">Dashboard Pemateri & Pelatih Kaderisasi</p>
+          <p className="text-emerald-100 text-sm">Dashboard Pemateri & Pelatih Kaderisasi</p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -838,10 +814,10 @@ export default function App() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {myJadwal.slice(0, 4).map((j) => (
               <div key={j.docId} className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden flex flex-col">
-                <div className="bg-indigo-50 border-b border-indigo-100 p-5 flex flex-col justify-center relative">
-                  <span className="absolute top-4 right-4 bg-indigo-100 text-indigo-700 text-xs px-2 py-1 rounded font-bold">{j.displayId}</span>
+                <div className="bg-emerald-50 border-b border-emerald-100 p-5 flex flex-col justify-center relative">
+                  <span className="absolute top-4 right-4 bg-emerald-100 text-emerald-700 text-xs px-2 py-1 rounded font-bold">{j.displayId}</span>
                   <h3 className="text-lg font-bold text-slate-800 leading-tight mb-1 pr-10">{j.materi}</h3>
-                  <p className="text-sm text-indigo-600 font-medium">Satkoryon {j.kecamatan}</p>
+                  <p className="text-sm text-emerald-600 font-medium">Satkoryon {j.kecamatan}</p>
                 </div>
                 <div className="p-5 flex-1 flex flex-col justify-between">
                   <div className="space-y-2 mb-6">
@@ -862,7 +838,6 @@ export default function App() {
           </div>
         )}
 
-        {/* Panel Presensi Ditempatkan Tersendiri */}
         {renderPanelPresensi(myJadwal)}
       </div>
     );
@@ -872,7 +847,7 @@ export default function App() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <h2 className="text-2xl font-bold text-slate-800">Data Seluruh Pelatih</h2>
-        <button onClick={() => setIsAddPelatihModalOpen(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-700 shadow-sm">
+        <button onClick={() => setIsAddPelatihModalOpen(true)} className="bg-emerald-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-emerald-700 shadow-sm">
           <UserPlus size={18} /> Tambah Pelatih Manual
         </button>
       </div>
@@ -904,7 +879,7 @@ export default function App() {
                     <button onClick={() => handleResetPassword(p)} className="p-1.5 text-amber-600 hover:text-amber-800 hover:bg-amber-100 rounded-md" title="Reset Password ke 123">
                       <RefreshCcw size={18} />
                     </button>
-                    <button onClick={() => openEditPelatih(p)} className="p-1.5 text-blue-600 hover:text-blue-800 hover:bg-blue-100 rounded-md" title="Edit Data Pelatih">
+                    <button onClick={() => openEditPelatih(p)} className="p-1.5 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-100 rounded-md" title="Edit Data Pelatih">
                       <Pencil size={18} />
                     </button>
                     <button onClick={() => openWhatsAppWeb(p.wa, `Halo ${p.nama},\n\nMohon kesediaannya untuk jadwal pelatihan mendatang.`, p.nama, 'Pesan Personal')} className="p-1.5 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-100 rounded-md" title="Kirim Pesan WA Langsung">
@@ -932,10 +907,10 @@ export default function App() {
           <div className="grid grid-cols-1 gap-6">
             {myJadwal.map((j) => (
               <div key={j.docId} className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden flex flex-col md:flex-row">
-                <div className="bg-indigo-50 border-b md:border-b-0 md:border-r border-indigo-100 p-6 md:w-1/3 flex flex-col justify-center">
-                  <span className="inline-block bg-indigo-100 text-indigo-700 text-xs px-2 py-1 rounded font-bold w-max mb-2">{j.displayId}</span>
+                <div className="bg-emerald-50 border-b md:border-b-0 md:border-r border-emerald-100 p-6 md:w-1/3 flex flex-col justify-center">
+                  <span className="inline-block bg-emerald-100 text-emerald-700 text-xs px-2 py-1 rounded font-bold w-max mb-2">{j.displayId}</span>
                   <h3 className="text-xl font-bold text-slate-800 leading-tight mb-2">{j.materi}</h3>
-                  <p className="text-sm text-indigo-600 font-medium">Satkoryon {j.kecamatan}</p>
+                  <p className="text-sm text-emerald-600 font-medium">Satkoryon {j.kecamatan}</p>
                 </div>
                 <div className="p-6 flex-1 flex flex-col justify-between">
                   <div className="grid grid-cols-2 gap-4 mb-6">
@@ -954,7 +929,6 @@ export default function App() {
           </div>
         )}
 
-        {/* Panel Presensi Ditempatkan Tersendiri */}
         {renderPanelPresensi(myJadwal)}
       </div>
     );
@@ -962,26 +936,27 @@ export default function App() {
 
   const JadwalView = () => (
     <div className="space-y-6">
+      {/* Header & Tombol Aksi */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <h2 className="text-2xl font-bold text-slate-800">Manajemen Jadwal</h2>
         <div className="flex flex-wrap gap-2 w-full sm:w-auto">
           <button onClick={prepareBlastWAPelatih} className="bg-teal-100 text-teal-700 px-4 py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-teal-200 font-medium"><Send size={18} /> Blast WA Pelatih</button>
           <button onClick={handleCetakPresensi} className="bg-amber-100 text-amber-700 px-4 py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-amber-200 font-medium"><Printer size={18} /> Cetak PDF Presensi</button>
-          <button onClick={() => setIsQrModalOpen(true)} className="bg-indigo-100 text-indigo-700 px-4 py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-indigo-200 font-medium"><QrCode size={18} /> QR Pelatih (Global)</button>
-          <button onClick={() => setIsAddJadwalModalOpen(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-blue-700 font-medium"><Plus size={18} /> Buat Jadwal Baru</button>
+          <button onClick={() => setIsQrModalOpen(true)} className="bg-emerald-100 text-emerald-700 px-4 py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-emerald-200 font-medium"><QrCode size={18} /> QR Pelatih (Global)</button>
+          <button onClick={() => setIsAddJadwalModalOpen(true)} className="bg-emerald-600 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-emerald-700 font-medium"><Plus size={18} /> Buat Jadwal Baru</button>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {jadwal.map((j) => (
           <div key={j.docId} className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden flex flex-col">
-            <div className="bg-blue-50 border-b border-blue-100 p-4">
+            <div className="bg-emerald-50 border-b border-emerald-100 p-4">
               <div className="flex justify-between items-start">
                 <div>
                   <h3 className="text-lg font-bold text-slate-800 leading-tight">{j.materi}</h3>
-                  <span className="inline-block mt-1 bg-indigo-100 text-indigo-700 text-xs px-2 py-0.5 rounded font-medium">Kec. {j.kecamatan}</span>
+                  <span className="inline-block mt-1 bg-emerald-100 text-emerald-700 text-xs px-2 py-0.5 rounded font-medium">Kec. {j.kecamatan}</span>
                 </div>
-                <span className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded font-semibold">{j.displayId}</span>
+                <span className="bg-emerald-100 text-emerald-800 text-xs px-2 py-1 rounded font-semibold">{j.displayId}</span>
               </div>
               <p className="text-sm text-slate-600 mt-2">Pemateri: <span className="font-medium">{j.pelatih}</span></p>
             </div>
@@ -1028,10 +1003,52 @@ export default function App() {
 
   // --- RENDER UTAMA ---
   
+  if (dbPermissionError) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4">
+        <div className="bg-white p-8 rounded-2xl shadow-xl border border-red-100 max-w-lg text-center">
+          <div className="flex justify-center mb-4">
+            <div className="p-4 bg-red-100 text-red-600 rounded-full">
+              <AlertTriangle size={40} />
+            </div>
+          </div>
+          <h2 className="text-red-600 font-bold text-2xl mb-3">Akses Database Ditolak!</h2>
+          <p className="text-slate-600 text-sm mb-6 leading-relaxed">
+            Sistem mendeteksi bahwa aturan keamanan (Security Rules) Firebase Anda masih berstatus terkunci, sehingga aplikasi tidak diizinkan membaca atau menyimpan data.
+          </p>
+          <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 text-left mb-6">
+            <p className="font-bold text-sm text-slate-800 mb-2">Cara Memperbaikinya:</p>
+            <ol className="list-decimal pl-4 text-sm text-slate-600 space-y-2">
+              <li>Buka website <b>console.firebase.google.com</b>.</li>
+              <li>Pilih project <span className="font-mono text-xs bg-slate-200 px-1 rounded">applikasipresensikaderisasi</span>.</li>
+              <li>Di menu kiri, klik <b>Firestore Database</b>, lalu masuk ke tab <b>Rules</b>.</li>
+              <li>Hapus aturan yang lama, lalu ganti (Paste) dengan aturan ini:
+                <pre className="bg-slate-800 text-emerald-400 p-3 rounded-lg text-[10px] mt-2 overflow-x-auto">
+{`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}`}
+                </pre>
+              </li>
+              <li>Klik tombol <b>Publish</b> dan muat ulang (Refresh) aplikasi ini.</li>
+            </ol>
+          </div>
+          <button onClick={() => window.location.reload()} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-lg transition">
+            Muat Ulang Halaman
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (isDbLoading) {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center text-slate-500">
-        <Loader2 className="animate-spin mb-4 text-blue-600" size={48} />
+        <Loader2 className="animate-spin mb-4 text-emerald-600" size={48} />
         <p className="font-medium text-lg">Menghubungkan ke Cloud Database...</p>
       </div>
     )
@@ -1056,22 +1073,22 @@ export default function App() {
                 <form onSubmit={handleRegisterPelatih} className="space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Nama Lengkap & Gelar</label>
-                    <input required type="text" value={registerData.nama} onChange={e => setRegisterData({...registerData, nama: e.target.value})} className="w-full border border-slate-200 rounded-lg p-3 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" placeholder="Cth: Dr. Ahmad Fauzi, M.Pd" />
+                    <input required type="text" value={registerData.nama} onChange={e => setRegisterData({...registerData, nama: e.target.value})} className="w-full border border-slate-200 rounded-lg p-3 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none" placeholder="Cth: Dr. Ahmad Fauzi, M.Pd" />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Alamat Domisili</label>
-                    <textarea required rows="2" value={registerData.alamat} onChange={e => setRegisterData({...registerData, alamat: e.target.value})} className="w-full border border-slate-200 rounded-lg p-3 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none resize-none" placeholder="Cth: Jl. Raya Kajen No. 12, Pekalongan" />
+                    <textarea required rows="2" value={registerData.alamat} onChange={e => setRegisterData({...registerData, alamat: e.target.value})} className="w-full border border-slate-200 rounded-lg p-3 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none resize-none" placeholder="Cth: Jl. Raya Kajen No. 12, Pekalongan" />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Nomor WhatsApp</label>
-                    <input required type="text" value={registerData.wa} onChange={e => setRegisterData({...registerData, wa: e.target.value})} className="w-full border border-slate-200 rounded-lg p-3 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" placeholder="Cth: +62812..." />
+                    <input required type="text" value={registerData.wa} onChange={e => setRegisterData({...registerData, wa: e.target.value})} className="w-full border border-slate-200 rounded-lg p-3 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none" placeholder="Cth: +62812..." />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Bidang Keahlian / Materi</label>
-                    <input required type="text" value={registerData.bidang} onChange={e => setRegisterData({...registerData, bidang: e.target.value})} className="w-full border border-slate-200 rounded-lg p-3 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" placeholder="Cth: Ke-NU-an / Kepemimpinan" />
+                    <input required type="text" value={registerData.bidang} onChange={e => setRegisterData({...registerData, bidang: e.target.value})} className="w-full border border-slate-200 rounded-lg p-3 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none" placeholder="Cth: Ke-NU-an / Kepemimpinan" />
                   </div>
                   
-                  <div className="bg-blue-50 text-blue-800 p-3 rounded-lg text-xs mt-6 border border-blue-100">
+                  <div className="bg-emerald-50 text-emerald-800 p-3 rounded-lg text-xs mt-6 border border-emerald-100">
                     <span className="font-bold">Info:</span> Setelah pendaftaran berhasil, Password default Anda adalah <b>123</b>.
                   </div>
 
@@ -1083,9 +1100,9 @@ export default function App() {
             </div>
           )}
 
-          <div className="bg-blue-600 p-8 text-center">
-            <h1 className="text-3xl font-bold tracking-wider text-white mb-2">KADER<span className="text-blue-200">PRO</span></h1>
-            <p className="text-blue-100 text-sm">Sistem Informasi Kaderisasi & Presensi</p>
+          <div className="bg-emerald-600 p-8 text-center">
+            <h1 className="text-3xl font-bold tracking-wider text-white mb-2">KADER<span className="text-emerald-300">PRO</span></h1>
+            <p className="text-emerald-100 text-sm">Sistem Informasi Kaderisasi & Presensi</p>
           </div>
           <div className="p-8 pb-4">
             <h2 className="text-xl font-bold text-slate-800 mb-6 text-center">Login Sistem</h2>
@@ -1095,22 +1112,22 @@ export default function App() {
                 <label className="block text-sm font-medium text-slate-700 mb-1">Username / Nama Pelatih</label>
                 <div className="relative">
                   <User className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                  <input required type="text" value={username} onChange={(e) => setUsername(e.target.value)} className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-blue-500" placeholder="Contoh: admin / Dr. Andi Pratama" />
+                  <input required type="text" value={username} onChange={(e) => setUsername(e.target.value)} className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-emerald-500" placeholder="Contoh: admin / Dr. Andi Pratama" />
                 </div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Password</label>
                 <div className="relative">
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                  <input required type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-blue-500" placeholder="••••••••" />
+                  <input required type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-emerald-500" placeholder="••••••••" />
                 </div>
               </div>
-              <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg transition mt-4">Masuk Sistem</button>
+              <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-lg transition mt-4">Masuk Sistem</button>
             </form>
             
             <div className="mt-5 text-center border-t border-slate-100 pt-5">
                <p className="text-sm text-slate-600">Belum terdaftar di database?</p>
-               <button onClick={() => setIsRegisterModalOpen(true)} className="text-blue-600 font-bold hover:underline text-sm mt-1">Daftar sebagai Pelatih Baru</button>
+               <button onClick={() => setIsRegisterModalOpen(true)} className="text-emerald-600 font-bold hover:underline text-sm mt-1">Daftar sebagai Pelatih Baru</button>
             </div>
             
             <div className="mt-6 flex justify-center items-center gap-2 text-xs font-medium text-slate-500">
@@ -1122,7 +1139,7 @@ export default function App() {
           </div>
         </div>
         <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2">
-          {toasts.map(toast => (<div key={toast.id} className={`px-4 py-3 rounded-lg shadow-lg text-sm font-medium flex items-center gap-3 text-white transform transition-all duration-300 translate-y-0 opacity-100 ${toast.type === 'success' ? 'bg-emerald-600' : toast.type === 'error' ? 'bg-red-600' : 'bg-blue-600'}`}>{toast.type === 'success' ? <CheckCircle size={18} /> : <Settings size={18} className="animate-spin" />}{toast.message}</div>))}
+          {toasts.map(toast => (<div key={toast.id} className={`px-4 py-3 rounded-lg shadow-lg text-sm font-medium flex items-center gap-3 text-white transform transition-all duration-300 translate-y-0 opacity-100 ${toast.type === 'success' ? 'bg-emerald-600' : toast.type === 'error' ? 'bg-red-600' : 'bg-emerald-600'}`}>{toast.type === 'success' ? <CheckCircle size={18} /> : <Settings size={18} className="animate-spin" />}{toast.message}</div>))}
         </div>
       </div>
     );
@@ -1146,12 +1163,12 @@ export default function App() {
           <div className="flex items-center gap-4">
             <div className="flex flex-col items-end hidden sm:flex">
               <span className="text-sm font-bold text-slate-800">{currentUser.name}</span>
-              <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full uppercase mt-0.5">{currentUser.role === 'admin' ? 'Admin Kabupaten' : 'Pemateri / Pelatih'}</span>
+              <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full uppercase mt-0.5">{currentUser.role === 'admin' ? 'Admin Kabupaten' : 'Pemateri / Pelatih'}</span>
             </div>
-            <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-sm">{currentUser.name.substring(0, 2).toUpperCase()}</div>
+            <div className="w-10 h-10 rounded-full bg-emerald-600 flex items-center justify-center text-white font-bold text-sm">{currentUser.name.substring(0, 2).toUpperCase()}</div>
             
             {currentUser.role === 'pelatih' && (
-              <button onClick={() => setIsChangePassModalOpen(true)} className="ml-2 p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition" title="Ganti Password">
+              <button onClick={() => setIsChangePassModalOpen(true)} className="ml-2 p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition" title="Ganti Password">
                 <Key size={20} />
               </button>
             )}
@@ -1171,7 +1188,7 @@ export default function App() {
       </div>
 
       <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2">
-        {toasts.map(toast => (<div key={toast.id} className={`px-4 py-3 rounded-lg shadow-lg text-sm font-medium flex items-center gap-3 text-white transform transition-all duration-300 translate-y-0 opacity-100 ${toast.type === 'success' ? 'bg-emerald-600' : toast.type === 'error' ? 'bg-red-600' : 'bg-blue-600'}`}>{toast.type === 'success' ? <CheckCircle size={18} /> : <Settings size={18} className="animate-spin" />}{toast.message}</div>))}
+        {toasts.map(toast => (<div key={toast.id} className={`px-4 py-3 rounded-lg shadow-lg text-sm font-medium flex items-center gap-3 text-white transform transition-all duration-300 translate-y-0 opacity-100 ${toast.type === 'success' ? 'bg-emerald-600' : toast.type === 'error' ? 'bg-red-600' : 'bg-emerald-600'}`}>{toast.type === 'success' ? <CheckCircle size={18} /> : <Settings size={18} className="animate-spin" />}{toast.message}</div>))}
       </div>
 
       {/* --- MODAL GANTI PASSWORD PELATIH --- */}
@@ -1186,19 +1203,19 @@ export default function App() {
               {changePassError && <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm text-center font-medium border border-red-100">{changePassError}</div>}
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Password Lama</label>
-                <input required type="password" value={changePassData.oldPass} onChange={e => setChangePassData({...changePassData, oldPass: e.target.value})} className="w-full border border-slate-200 rounded-lg p-3 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" placeholder="Masukkan password saat ini" />
+                <input required type="password" value={changePassData.oldPass} onChange={e => setChangePassData({...changePassData, oldPass: e.target.value})} className="w-full border border-slate-200 rounded-lg p-3 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none" placeholder="Masukkan password saat ini" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Password Baru</label>
-                <input required type="password" value={changePassData.newPass} onChange={e => setChangePassData({...changePassData, newPass: e.target.value})} className="w-full border border-slate-200 rounded-lg p-3 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" placeholder="Minimal 6 karakter" minLength="6" />
+                <input required type="password" value={changePassData.newPass} onChange={e => setChangePassData({...changePassData, newPass: e.target.value})} className="w-full border border-slate-200 rounded-lg p-3 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none" placeholder="Minimal 6 karakter" minLength="6" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Konfirmasi Password Baru</label>
-                <input required type="password" value={changePassData.confirmPass} onChange={e => setChangePassData({...changePassData, confirmPass: e.target.value})} className="w-full border border-slate-200 rounded-lg p-3 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" placeholder="Ulangi password baru" minLength="6" />
+                <input required type="password" value={changePassData.confirmPass} onChange={e => setChangePassData({...changePassData, confirmPass: e.target.value})} className="w-full border border-slate-200 rounded-lg p-3 text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none" placeholder="Ulangi password baru" minLength="6" />
               </div>
               <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-100">
                 <button type="button" onClick={() => { setIsChangePassModalOpen(false); setChangePassError(''); }} className="px-4 py-2 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg">Batal</button>
-                <button type="submit" className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg">Simpan Password</button>
+                <button type="submit" className="px-4 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg">Simpan Password</button>
               </div>
             </form>
           </div>
@@ -1213,11 +1230,11 @@ export default function App() {
               <button onClick={() => setIsAddPelatihModalOpen(false)} className="text-slate-400 hover:text-slate-600"><X size={20}/></button>
             </div>
             <form onSubmit={submitAddPelatih} className="p-4 space-y-4">
-              <div><label className="block text-sm font-medium text-slate-700 mb-1">Nama Lengkap & Gelar</label><input required type="text" value={newPelatih.nama} onChange={e => setNewPelatih({...newPelatih, nama: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" placeholder="Masukkan nama pelatih..." /></div>
-              <div><label className="block text-sm font-medium text-slate-700 mb-1">Alamat</label><textarea required rows="2" value={newPelatih.alamat} onChange={e => setNewPelatih({...newPelatih, alamat: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500 resize-none" placeholder="Alamat domisili..." /></div>
-              <div><label className="block text-sm font-medium text-slate-700 mb-1">Bidang / Materi Spesialisasi</label><input required type="text" value={newPelatih.bidang} onChange={e => setNewPelatih({...newPelatih, bidang: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" placeholder="Contoh: Ke-NU-an" /></div>
-              <div><label className="block text-sm font-medium text-slate-700 mb-1">Nomor WhatsApp</label><input required type="text" value={newPelatih.wa} onChange={e => setNewPelatih({...newPelatih, wa: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" placeholder="Contoh: +62812..." /></div>
-              <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-100"><button type="button" onClick={() => setIsAddPelatihModalOpen(false)} className="px-4 py-2 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg">Batal</button><button type="submit" className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg">Simpan ke Cloud</button></div>
+              <div><label className="block text-sm font-medium text-slate-700 mb-1">Nama Lengkap & Gelar</label><input required type="text" value={newPelatih.nama} onChange={e => setNewPelatih({...newPelatih, nama: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-emerald-500" placeholder="Masukkan nama pelatih..." /></div>
+              <div><label className="block text-sm font-medium text-slate-700 mb-1">Alamat</label><textarea required rows="2" value={newPelatih.alamat} onChange={e => setNewPelatih({...newPelatih, alamat: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-emerald-500 resize-none" placeholder="Alamat domisili..." /></div>
+              <div><label className="block text-sm font-medium text-slate-700 mb-1">Bidang / Materi Spesialisasi</label><input required type="text" value={newPelatih.bidang} onChange={e => setNewPelatih({...newPelatih, bidang: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-emerald-500" placeholder="Contoh: Ke-NU-an" /></div>
+              <div><label className="block text-sm font-medium text-slate-700 mb-1">Nomor WhatsApp</label><input required type="text" value={newPelatih.wa} onChange={e => setNewPelatih({...newPelatih, wa: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-emerald-500" placeholder="Contoh: +62812..." /></div>
+              <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-100"><button type="button" onClick={() => setIsAddPelatihModalOpen(false)} className="px-4 py-2 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg">Batal</button><button type="submit" className="px-4 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg">Simpan ke Cloud</button></div>
             </form>
           </div>
         </div>
@@ -1233,30 +1250,30 @@ export default function App() {
             <form onSubmit={submitEditPelatih} className="p-4 space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Nama Lengkap & Gelar</label>
-                <input required type="text" value={editPelatihData.nama} onChange={e => setEditPelatihData({...editPelatihData, nama: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" />
+                <input required type="text" value={editPelatihData.nama} onChange={e => setEditPelatihData({...editPelatihData, nama: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-emerald-500" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Alamat</label>
-                <textarea required rows="2" value={editPelatihData.alamat} onChange={e => setEditPelatihData({...editPelatihData, alamat: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500 resize-none" />
+                <textarea required rows="2" value={editPelatihData.alamat} onChange={e => setEditPelatihData({...editPelatihData, alamat: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-emerald-500 resize-none" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Bidang / Materi Spesialisasi</label>
-                <input required type="text" value={editPelatihData.bidang} onChange={e => setEditPelatihData({...editPelatihData, bidang: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" />
+                <input required type="text" value={editPelatihData.bidang} onChange={e => setEditPelatihData({...editPelatihData, bidang: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-emerald-500" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Nomor WhatsApp</label>
-                <input required type="text" value={editPelatihData.wa} onChange={e => setEditPelatihData({...editPelatihData, wa: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" />
+                <input required type="text" value={editPelatihData.wa} onChange={e => setEditPelatihData({...editPelatihData, wa: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-emerald-500" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Status Keaktifan</label>
-                <select value={editPelatihData.status} onChange={e => setEditPelatihData({...editPelatihData, status: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500">
+                <select value={editPelatihData.status} onChange={e => setEditPelatihData({...editPelatihData, status: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-emerald-500">
                   <option value="Aktif">Aktif</option>
                   <option value="Tidak Aktif">Tidak Aktif</option>
                 </select>
               </div>
               <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-100">
                 <button type="button" onClick={() => { setIsEditPelatihModalOpen(false); setEditPelatihData(null); }} className="px-4 py-2 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg">Batal</button>
-                <button type="submit" className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg">Simpan Perubahan</button>
+                <button type="submit" className="px-4 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg">Simpan Perubahan</button>
               </div>
             </form>
           </div>
@@ -1272,41 +1289,41 @@ export default function App() {
             </div>
             <div className="overflow-y-auto p-4">
               <form onSubmit={submitAddJadwal} className="space-y-4">
-                <div><label className="block text-sm font-medium text-slate-700 mb-1">Materi Pelatihan</label><input required type="text" value={newJadwal.materi} onChange={e => setNewJadwal({...newJadwal, materi: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" placeholder="Contoh: Ke-NU-an" /></div>
+                <div><label className="block text-sm font-medium text-slate-700 mb-1">Materi Pelatihan</label><input required type="text" value={newJadwal.materi} onChange={e => setNewJadwal({...newJadwal, materi: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-emerald-500" placeholder="Contoh: Ke-NU-an" /></div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Nama Pemateri</label>
-                    <select required value={newJadwal.pelatih} onChange={e => { const selected = pelatih.find(p => p.nama === e.target.value); setNewJadwal({...newJadwal, pelatih: selected ? selected.nama : e.target.value, waPelatih: selected ? selected.wa : ''}); }} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500">
+                    <select required value={newJadwal.pelatih} onChange={e => { const selected = pelatih.find(p => p.nama === e.target.value); setNewJadwal({...newJadwal, pelatih: selected ? selected.nama : e.target.value, waPelatih: selected ? selected.wa : ''}); }} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-emerald-500">
                       <option value="">-- Pilih Pelatih --</option>
                       {pelatih.filter(p => p.status === 'Aktif').map(p => (<option key={p.docId} value={p.nama}>{p.nama}</option>))}
                     </select>
                   </div>
-                  <div><label className="block text-sm font-medium text-slate-700 mb-1">No. WA Pemateri</label><input required type="text" value={newJadwal.waPelatih} onChange={e => setNewJadwal({...newJadwal, waPelatih: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" placeholder="Otomatis terisi..." /></div>
+                  <div><label className="block text-sm font-medium text-slate-700 mb-1">No. WA Pemateri</label><input required type="text" value={newJadwal.waPelatih} onChange={e => setNewJadwal({...newJadwal, waPelatih: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-emerald-500" placeholder="Otomatis terisi..." /></div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Satkoryon (Kecamatan)</label>
-                    <select required value={newJadwal.kecamatan} onChange={e => setNewJadwal({...newJadwal, kecamatan: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500">
+                    <select required value={newJadwal.kecamatan} onChange={e => setNewJadwal({...newJadwal, kecamatan: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-emerald-500">
                       {daftarKecamatan.map(kec => (<option key={kec} value={kec}>{kec}</option>))}
                     </select>
                   </div>
-                  <div><label className="block text-sm font-medium text-slate-700 mb-1">Tempat</label><input required type="text" value={newJadwal.tempat} onChange={e => setNewJadwal({...newJadwal, tempat: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" placeholder="Lokasi pelatihan..." /></div>
+                  <div><label className="block text-sm font-medium text-slate-700 mb-1">Tempat</label><input required type="text" value={newJadwal.tempat} onChange={e => setNewJadwal({...newJadwal, tempat: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-emerald-500" placeholder="Lokasi pelatihan..." /></div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
-                  <div><label className="block text-sm font-medium text-slate-700 mb-1">Tanggal Pelatihan</label><input required type="date" value={newJadwal.tanggal} onChange={e => setNewJadwal({...newJadwal, tanggal: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" /></div>
-                  <div><label className="block text-sm font-medium text-slate-700 mb-1">Kuota Peserta</label><input required type="number" min="1" value={newJadwal.kuota} onChange={e => setNewJadwal({...newJadwal, kuota: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" placeholder="Contoh: 50" /></div>
+                  <div><label className="block text-sm font-medium text-slate-700 mb-1">Tanggal Pelatihan</label><input required type="date" value={newJadwal.tanggal} onChange={e => setNewJadwal({...newJadwal, tanggal: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-emerald-500" /></div>
+                  <div><label className="block text-sm font-medium text-slate-700 mb-1">Kuota Peserta</label><input required type="number" min="1" value={newJadwal.kuota} onChange={e => setNewJadwal({...newJadwal, kuota: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-emerald-500" placeholder="Contoh: 50" /></div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
-                  <div><label className="block text-sm font-medium text-slate-700 mb-1">Jam Mulai</label><input required type="time" value={newJadwal.waktuMulai} onChange={e => setNewJadwal({...newJadwal, waktuMulai: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" /></div>
-                  <div><label className="block text-sm font-medium text-slate-700 mb-1">Jam Selesai</label><input required type="time" value={newJadwal.waktuSelesai} onChange={e => setNewJadwal({...newJadwal, waktuSelesai: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" /></div>
+                  <div><label className="block text-sm font-medium text-slate-700 mb-1">Jam Mulai</label><input required type="time" value={newJadwal.waktuMulai} onChange={e => setNewJadwal({...newJadwal, waktuMulai: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-emerald-500" /></div>
+                  <div><label className="block text-sm font-medium text-slate-700 mb-1">Jam Selesai</label><input required type="time" value={newJadwal.waktuSelesai} onChange={e => setNewJadwal({...newJadwal, waktuSelesai: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-emerald-500" /></div>
                 </div>
-                <div className="flex items-center gap-2 mt-4 p-3 bg-blue-50 rounded-lg border border-blue-100">
-                  <input type="checkbox" id="autoSend" checked={autoSendWA} onChange={(e) => setAutoSendWA(e.target.checked)} className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer" />
-                  <label htmlFor="autoSend" className="text-sm text-blue-800 cursor-pointer font-medium">Otomatis kirim info jadwal via WA (API) ke pemateri</label>
+                <div className="flex items-center gap-2 mt-4 p-3 bg-emerald-50 rounded-lg border border-emerald-100">
+                  <input type="checkbox" id="autoSend" checked={autoSendWA} onChange={(e) => setAutoSendWA(e.target.checked)} className="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500 cursor-pointer" />
+                  <label htmlFor="autoSend" className="text-sm text-emerald-800 cursor-pointer font-medium">Otomatis kirim info jadwal via WA ke pemateri</label>
                 </div>
                 <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-100">
                   <button type="button" onClick={() => setIsAddJadwalModalOpen(false)} className="px-4 py-2 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg">Batal</button>
-                  <button type="submit" className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg">Simpan ke Cloud</button>
+                  <button type="submit" className="px-4 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg">Simpan ke Cloud</button>
                 </div>
               </form>
             </div>
@@ -1333,7 +1350,7 @@ export default function App() {
           <div className="bg-white rounded-xl shadow-lg w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
             <div className="flex justify-between items-center p-4 border-b border-slate-100 bg-slate-50"><h3 className="font-bold text-lg text-slate-800">Blast WA ke Pelatih</h3><button onClick={() => setIsBlastModalOpen(false)} className="text-slate-400 hover:text-slate-600"><X size={20}/></button></div>
             <div className="overflow-y-auto p-4 space-y-4">
-              <div className="bg-blue-50 text-blue-800 p-3 rounded-lg text-sm border border-blue-100">Sistem API akan mengirimkan pesan massal ke <b>{blastTargets.length} pelatih</b> di latar belakang.</div>
+              <div className="bg-emerald-50 text-emerald-800 p-3 rounded-lg text-sm border border-emerald-100">Sistem API akan mengirimkan pesan massal ke <b>{blastTargets.length} pelatih</b> di latar belakang.</div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Daftar Penerima:</label>
                 <div className="max-h-32 overflow-y-auto border border-slate-200 rounded-lg p-2 bg-slate-50 space-y-1">
@@ -1342,7 +1359,7 @@ export default function App() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Template Pesan (Bisa diedit):</label>
-                <textarea rows="5" value={blastMessage} onChange={(e) => setBlastMessage(e.target.value)} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500 resize-none"/>
+                <textarea rows="5" value={blastMessage} onChange={(e) => setBlastMessage(e.target.value)} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-emerald-500 resize-none"/>
               </div>
               <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-100">
                 <button onClick={() => setIsBlastModalOpen(false)} className="px-4 py-2 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg">Batal</button>
@@ -1353,7 +1370,7 @@ export default function App() {
         </div>
       )}
 
-      {scanTarget && <ScannerModal target={scanTarget} onClose={() => setScanTarget(null)} onSuccess={onScanSuccess} />}
+      {scanTarget && <ScannerModal target={scanTarget} onClose={() => setScanTarget(null)} onSuccess={onScanSuccess} addToast={addToast} />}
     </div>
   );
 }
