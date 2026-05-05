@@ -189,6 +189,9 @@ export default function App() {
   const [newJadwal, setNewJadwal] = useState({ materi: '', pelatih: '', waPelatih: '', tanggal: '', waktuMulai: '', waktuSelesai: '', tempat: '', kuota: '', kecamatan: 'Buaran', waktuDatang: '-', waktuPulang: '-' });
   const [autoSendWA, setAutoSendWA] = useState(true);
 
+  const [isEditJadwalModalOpen, setIsEditJadwalModalOpen] = useState(false);
+  const [editJadwalData, setEditJadwalData] = useState(null);
+
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
   const [isBlastModalOpen, setIsBlastModalOpen] = useState(false);
   const [blastTargets, setBlastTargets] = useState([]);
@@ -336,7 +339,6 @@ export default function App() {
   const addToast = (message, type = 'success') => {
     const id = Date.now();
     setToasts(prev => [...prev, { id, message, type }]);
-
     setTimeout(() => {
       setToasts(prev => prev.filter(t => t.id !== id));
     }, 3000);
@@ -413,7 +415,7 @@ export default function App() {
     addToast('Anda telah logout.', 'info');
   };
 
-  // --- CRUD CLOUD FIRESTORE ---
+  // --- CRUD CLOUD FIRESTORE PELATIH ---
   const submitAddPelatih = async (e) => {
     e.preventDefault();
     if (!firebaseUser) {
@@ -512,6 +514,7 @@ export default function App() {
     }
   };
 
+  // --- CRUD CLOUD FIRESTORE JADWAL ---
   const submitAddJadwal = async (e) => {
     e.preventDefault();
     if (!firebaseUser) return;
@@ -532,6 +535,36 @@ export default function App() {
       }
     } catch (error) {
       addToast('Gagal menyimpan jadwal.', 'error');
+    }
+  };
+
+  const openEditJadwal = (j) => {
+    setEditJadwalData({ ...j });
+    setIsEditJadwalModalOpen(true);
+  };
+
+  const submitEditJadwal = async (e) => {
+    e.preventDefault();
+    if (!firebaseUser) return;
+    addToast('Menyimpan perubahan jadwal...', 'info');
+    const jRef = doc(db, 'artifacts', appId, 'public', 'data', 'kader_jadwal', editJadwalData.docId);
+    try {
+      await updateDoc(jRef, {
+        materi: editJadwalData.materi,
+        pelatih: editJadwalData.pelatih,
+        waPelatih: editJadwalData.waPelatih,
+        kecamatan: editJadwalData.kecamatan,
+        tempat: editJadwalData.tempat,
+        tanggal: editJadwalData.tanggal,
+        kuota: editJadwalData.kuota,
+        waktuMulai: editJadwalData.waktuMulai,
+        waktuSelesai: editJadwalData.waktuSelesai,
+      });
+      setIsEditJadwalModalOpen(false);
+      setEditJadwalData(null);
+      addToast('Jadwal berhasil diperbarui!', 'success');
+    } catch (error) {
+      addToast('Gagal memperbarui jadwal.', 'error');
     }
   };
 
@@ -1025,7 +1058,7 @@ export default function App() {
         </div>
       </div>
 
-      {/* Tabel Jadwal (Versi Rapi dengan tombol Reset) */}
+      {/* Tabel Jadwal (Versi Rapi dengan tombol Reset, Edit, Hapus) */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse min-w-[1000px]">
@@ -1101,7 +1134,16 @@ export default function App() {
                         <Send size={16} />
                       </button>
 
-                      {/* Tombol Baru: Reset Presensi Jadwal */}
+                      {/* Tombol Edit Jadwal */}
+                      <button 
+                        onClick={() => openEditJadwal(j)}
+                        className="p-2 text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-600 hover:text-white transition shadow-sm"
+                        title="Edit Jadwal"
+                      >
+                        <Pencil size={16} />
+                      </button>
+
+                      {/* Tombol Reset Presensi Jadwal */}
                       <button 
                         onClick={() => handleResetPresensiJadwal(j.docId, j.materi)}
                         className="p-2 text-amber-600 bg-amber-50 rounded-lg hover:bg-amber-600 hover:text-white transition shadow-sm"
@@ -1491,6 +1533,53 @@ service cloud.firestore {
         </div>
       )}
 
+      {isEditJadwalModalOpen && editJadwalData && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-lg w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="flex justify-between items-center p-4 border-b border-slate-100 bg-slate-50">
+              <h3 className="font-bold text-lg text-slate-800">Edit Jadwal</h3>
+              <button onClick={() => { setIsEditJadwalModalOpen(false); setEditJadwalData(null); }} className="text-slate-400 hover:text-slate-600"><X size={20}/></button>
+            </div>
+            <div className="overflow-y-auto p-4">
+              <form onSubmit={submitEditJadwal} className="space-y-4">
+                <div><label className="block text-sm font-medium text-slate-700 mb-1">Materi Pelatihan</label><input required type="text" value={editJadwalData.materi} onChange={e => setEditJadwalData({...editJadwalData, materi: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-emerald-500" /></div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Nama Pemateri</label>
+                    <select required value={editJadwalData.pelatih} onChange={e => { const selected = pelatih.find(p => p.nama === e.target.value); setEditJadwalData({...editJadwalData, pelatih: selected ? selected.nama : e.target.value, waPelatih: selected ? selected.wa : ''}); }} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-emerald-500">
+                      <option value="">-- Pilih Pelatih --</option>
+                      {pelatih.filter(p => p.status === 'Aktif').map(p => (<option key={p.docId} value={p.nama}>{p.nama}</option>))}
+                    </select>
+                  </div>
+                  <div><label className="block text-sm font-medium text-slate-700 mb-1">No. WA Pemateri</label><input required type="text" value={editJadwalData.waPelatih} onChange={e => setEditJadwalData({...editJadwalData, waPelatih: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-emerald-500" /></div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Satkoryon (Kecamatan)</label>
+                    <select required value={editJadwalData.kecamatan} onChange={e => setEditJadwalData({...editJadwalData, kecamatan: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-emerald-500">
+                      {daftarKecamatan.map(kec => (<option key={kec} value={kec}>{kec}</option>))}
+                    </select>
+                  </div>
+                  <div><label className="block text-sm font-medium text-slate-700 mb-1">Tempat</label><input required type="text" value={editJadwalData.tempat} onChange={e => setEditJadwalData({...editJadwalData, tempat: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-emerald-500" /></div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div><label className="block text-sm font-medium text-slate-700 mb-1">Tanggal Pelatihan</label><input required type="date" value={editJadwalData.tanggal} onChange={e => setEditJadwalData({...editJadwalData, tanggal: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-emerald-500" /></div>
+                  <div><label className="block text-sm font-medium text-slate-700 mb-1">Kuota Peserta</label><input required type="number" min="1" value={editJadwalData.kuota} onChange={e => setEditJadwalData({...editJadwalData, kuota: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-emerald-500" /></div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div><label className="block text-sm font-medium text-slate-700 mb-1">Jam Mulai</label><input required type="time" value={editJadwalData.waktuMulai} onChange={e => setEditJadwalData({...editJadwalData, waktuMulai: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-emerald-500" /></div>
+                  <div><label className="block text-sm font-medium text-slate-700 mb-1">Jam Selesai</label><input required type="time" value={editJadwalData.waktuSelesai} onChange={e => setEditJadwalData({...editJadwalData, waktuSelesai: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-emerald-500" /></div>
+                </div>
+                <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-100">
+                  <button type="button" onClick={() => { setIsEditJadwalModalOpen(false); setEditJadwalData(null); }} className="px-4 py-2 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg">Batal</button>
+                  <button type="submit" className="px-4 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg">Simpan Perubahan</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
       {isQrModalOpen && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-lg w-full max-w-sm overflow-hidden text-center">
@@ -1531,8 +1620,6 @@ service cloud.firestore {
       )}
 
       {scanTarget && <ScannerModal target={scanTarget} onClose={() => setScanTarget(null)} onSuccess={onScanSuccess} addToast={addToast} />}
-    </div
-    {scanTarget && <ScannerModal target={scanTarget} onClose={() => setScanTarget(null)} onSuccess={onScanSuccess} addToast={addToast} />}
     </div>
   );
 }
