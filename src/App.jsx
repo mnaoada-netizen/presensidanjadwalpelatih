@@ -44,48 +44,80 @@ const daftarKecamatan = [
 // --- KOMPONEN SCANNER EKSTERNAL ---
 const ScannerModal = ({ target, onClose, onSuccess, addToast }) => {
   const scannerRef = useRef(null);
+  const isScanningRef = useRef(false);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      startScanner();
-    }, 500);
+    // Simulasi memuat skrip html5-qrcode jika belum ada
+    if (!window.Html5Qrcode) {
+        const script = document.createElement('script');
+        script.src = "https://unpkg.com/html5-qrcode";
+        script.async = true;
+        script.onload = () => {
+             startScanner();
+        };
+        document.body.appendChild(script);
+    } else {
+        const timer = setTimeout(() => {
+          startScanner();
+        }, 500);
+        return () => clearTimeout(timer);
+    }
 
     const startScanner = () => {
-      if (!window.Html5QrcodeScanner) {
-        console.error("Mesin scanner belum dimuat di index.html");
+      if (!window.Html5Qrcode) {
+        console.error("Mesin scanner belum dimuat.");
         return;
       }
 
-      scannerRef.current = new window.Html5QrcodeScanner(
-        "qr-reader",
-        { 
-          fps: 10, 
-          qrbox: { width: 250, height: 250 },
-          aspectRatio: 1.0,
-          videoConstraints: {
-            facingMode: "environment" 
+      scannerRef.current = new window.Html5Qrcode("qr-reader");
+      const config = { fps: 10, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 };
+
+      // Coba akses kamera belakang (environment)
+      scannerRef.current.start(
+        { facingMode: "environment" },
+        config,
+        (decodedText) => {
+          if (isScanningRef.current) {
+            isScanningRef.current = false;
+            scannerRef.current.stop().then(() => {
+              onSuccess(decodedText, target);
+            }).catch(err => console.log("Stop error", err));
           }
         },
-        false
-      );
-
-      scannerRef.current.render(
-        (decodedText) => {
-          scannerRef.current.clear().then(() => {
-            onSuccess(decodedText, target);
-          });
-        },
-        (error) => { /* Scanning... */ }
-      );
+        (error) => { /* Abaikan error per frame */ }
+      ).then(() => {
+        isScanningRef.current = true;
+      }).catch((err) => {
+        console.warn("Kamera belakang gagal/tidak ditemukan, mencoba kamera depan...", err);
+        // Fallback: Jika kamera belakang tidak ada, coba kamera depan (user)
+        scannerRef.current.start(
+          { facingMode: "user" },
+          config,
+          (decodedText) => {
+            if (isScanningRef.current) {
+              isScanningRef.current = false;
+              scannerRef.current.stop().then(() => {
+                onSuccess(decodedText, target);
+              });
+            }
+          },
+          (error) => {}
+        ).then(() => {
+          isScanningRef.current = true;
+        }).catch(e => {
+          console.error("Semua kamera gagal diakses:", e);
+          addToast("Gagal mengakses kamera. Pastikan izin kamera aktif.", "error");
+        });
+      });
     };
 
     return () => {
-      clearTimeout(timer);
-      if (scannerRef.current) {
-        scannerRef.current.clear().catch(e => console.log("Cleanup error", e));
+      if (scannerRef.current && isScanningRef.current) {
+        isScanningRef.current = false;
+        scannerRef.current.stop().catch(e => console.log("Cleanup error", e));
       }
     };
-  }, [onSuccess, target]);
+  }, [onSuccess, target, addToast]);
 
   return (
     <div className="fixed inset-0 bg-black/90 z-[70] flex flex-col items-center justify-center p-4">
@@ -98,7 +130,11 @@ const ScannerModal = ({ target, onClose, onSuccess, addToast }) => {
         </div>
         
         <div className="p-6">
-          <div id="qr-reader" className="w-full overflow-hidden rounded-xl border-2 border-emerald-500 bg-black min-h-[250px]"></div>
+          <div className="w-full max-w-[300px] mx-auto overflow-hidden rounded-xl border-2 border-emerald-500 bg-black min-h-[250px] flex items-center justify-center relative">
+            <div id="qr-reader" className="w-full h-full object-cover flex items-center justify-center text-white">
+                 <Loader2 className="animate-spin text-emerald-500" size={32} />
+            </div>
+          </div>
           <p className="text-center text-xs text-slate-500 mt-4 leading-relaxed">
             Arahkan ke QR Global Admin. Pastikan Anda memberikan <b>Izin Kamera</b> di browser HP.
           </p>
@@ -202,68 +238,78 @@ export default function App() {
   useEffect(() => {
     if (!firebaseUser) return;
 
-    const pelatihRef = collection(db, 'artifacts', appId, 'public', 'data', 'kader_pelatih');
-    const jadwalRef = collection(db, 'artifacts', appId, 'public', 'data', 'kader_jadwal');
-    const logsRef = collection(db, 'artifacts', appId, 'public', 'data', 'kader_logs');
-
     let isMounted = true;
+    let unsubPelatih = () => {};
+    let unsubJadwal = () => {};
+    let unsubLogs = () => {};
 
     // Fungsi penangkap error Permissions dari Firebase
     const handlePermissionError = (err, module) => {
-      console.error(`Sync ${module} Error:`, err);
       setIsDbLoading(false);
-      if (err.message.includes('permissions') || err.message.includes('Missing')) {
+      if (err.message && (err.message.includes('permissions') || err.message.includes('Missing'))) {
         setDbPermissionError(true);
+      } else {
+        console.error(`Sync ${module} Error:`, err);
       }
     };
 
-    const checkAndSeedData = async () => {
-      try {
-        const pSnap = await getDocs(pelatihRef);
-        if (pSnap.empty) {
-          const initialPelatih = [
-            { displayId: 'P001', nama: 'Dr. Andi Pratama', alamat: 'Kajen, Pekalongan', wa: '+628111222333', bidang: 'Kepemimpinan & Organisasi', status: 'Aktif', password: '123' },
-            { displayId: 'P002', nama: 'Bpk. Budi Cahyono', alamat: 'Kedungwuni, Pekalongan', wa: '+628444555666', bidang: 'Manajemen Konflik', status: 'Aktif', password: '123' },
-          ];
-          initialPelatih.forEach(p => addDoc(pelatihRef, p));
-        }
-      } catch(err) { handlePermissionError(err, 'Seeding'); }
-    };
-    checkAndSeedData();
+    try {
+      const pelatihRef = collection(db, 'artifacts', appId, 'public', 'data', 'kader_pelatih');
+      const jadwalRef = collection(db, 'artifacts', appId, 'public', 'data', 'kader_jadwal');
+      const logsRef = collection(db, 'artifacts', appId, 'public', 'data', 'kader_logs');
 
-    const unsubPelatih = onSnapshot(
-      pelatihRef, 
-      (snapshot) => {
-        if (!isMounted) return;
-        const data = snapshot.docs.map(doc => ({ docId: doc.id, ...doc.data() }));
-        data.sort((a, b) => (a.displayId > b.displayId) ? 1 : -1);
-        setPelatih(data);
-        setIsDbLoading(false); 
-      }, 
-      (err) => handlePermissionError(err, 'Pelatih')
-    );
+      const checkAndSeedData = async () => {
+        try {
+          const pSnap = await getDocs(pelatihRef);
+          if (pSnap.empty) {
+            const initialPelatih = [
+              { displayId: 'P001', nama: 'Dr. Andi Pratama', alamat: 'Kajen, Pekalongan', wa: '+628111222333', bidang: 'Kepemimpinan & Organisasi', status: 'Aktif', password: '123' },
+              { displayId: 'P002', nama: 'Bpk. Budi Cahyono', alamat: 'Kedungwuni, Pekalongan', wa: '+628444555666', bidang: 'Manajemen Konflik', status: 'Aktif', password: '123' },
+            ];
+            initialPelatih.forEach(p => addDoc(pelatihRef, p));
+          }
+        } catch(err) { handlePermissionError(err, 'Seeding'); }
+      };
+      
+      checkAndSeedData();
 
-    const unsubJadwal = onSnapshot(
-      jadwalRef, 
-      (snapshot) => {
-        if (!isMounted) return;
-        const data = snapshot.docs.map(doc => ({ docId: doc.id, ...doc.data() }));
-        data.sort((a, b) => (b.displayId > a.displayId) ? 1 : -1);
-        setJadwal(data);
-      }, 
-      (err) => handlePermissionError(err, 'Jadwal')
-    );
+      unsubPelatih = onSnapshot(
+        pelatihRef, 
+        (snapshot) => {
+          if (!isMounted) return;
+          const data = snapshot.docs.map(doc => ({ docId: doc.id, ...doc.data() }));
+          data.sort((a, b) => (a.displayId > b.displayId) ? 1 : -1);
+          setPelatih(data);
+          setIsDbLoading(false); 
+        }, 
+        (err) => handlePermissionError(err, 'Pelatih')
+      );
 
-    const unsubLogs = onSnapshot(
-      logsRef, 
-      (snapshot) => {
-        if (!isMounted) return;
-        const data = snapshot.docs.map(doc => ({ docId: doc.id, ...doc.data() }));
-        data.sort((a, b) => b.timestamp - a.timestamp);
-        setWaLogs(data);
-      }, 
-      (err) => handlePermissionError(err, 'Logs')
-    );
+      unsubJadwal = onSnapshot(
+        jadwalRef, 
+        (snapshot) => {
+          if (!isMounted) return;
+          const data = snapshot.docs.map(doc => ({ docId: doc.id, ...doc.data() }));
+          data.sort((a, b) => (b.displayId > a.displayId) ? 1 : -1);
+          setJadwal(data);
+        }, 
+        (err) => handlePermissionError(err, 'Jadwal')
+      );
+
+      unsubLogs = onSnapshot(
+        logsRef, 
+        (snapshot) => {
+          if (!isMounted) return;
+          const data = snapshot.docs.map(doc => ({ docId: doc.id, ...doc.data() }));
+          data.sort((a, b) => b.timestamp - a.timestamp);
+          setWaLogs(data);
+        }, 
+        (err) => handlePermissionError(err, 'Logs')
+      );
+
+    } catch (err) {
+      handlePermissionError(err, 'Init Collection');
+    }
 
     return () => {
       isMounted = false;
@@ -275,7 +321,7 @@ export default function App() {
 
   // Load Library html5-qrcode
   useEffect(() => {
-    if (window.Html5QrcodeScanner) {
+    if (window.Html5Qrcode) {
       setIsScannerReady(true);
       return;
     }
@@ -290,6 +336,7 @@ export default function App() {
   const addToast = (message, type = 'success') => {
     const id = Date.now();
     setToasts(prev => [...prev, { id, message, type }]);
+
     setTimeout(() => {
       setToasts(prev => prev.filter(t => t.id !== id));
     }, 3000);
@@ -369,7 +416,10 @@ export default function App() {
   // --- CRUD CLOUD FIRESTORE ---
   const submitAddPelatih = async (e) => {
     e.preventDefault();
-    if (!firebaseUser) return;
+    if (!firebaseUser) {
+      addToast('Koneksi Cloud terputus!', 'error');
+      return;
+    }
 
     addToast('Menyimpan ke Cloud...', 'info');
     const displayId = `P${String(pelatih.length + 1).padStart(3, '0')}`;
@@ -485,6 +535,26 @@ export default function App() {
     }
   };
 
+  // --- Fungsi Reset Absensi Jadwal ---
+  const handleResetPresensiJadwal = async (id, materi) => {
+    if (!firebaseUser) return;
+    
+    const confirmReset = window.confirm(`Apakah Anda yakin ingin mereset/mengosongkan data presensi (Jam Datang & Pulang) untuk jadwal "${materi}"?`);
+    if (!confirmReset) return;
+
+    addToast('Mereset data presensi...', 'info');
+    try {
+      await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'kader_jadwal', id), {
+        waktuDatang: '-',
+        waktuPulang: '-',
+        statusPelatih: 'Belum Hadir'
+      });
+      addToast('Presensi jadwal berhasil dikosongkan!', 'success');
+    } catch (error) {
+      addToast('Gagal mereset presensi jadwal.', 'error');
+    }
+  };
+
   const handleDeleteJadwal = async (id, materi) => {
     if (!firebaseUser) return;
     
@@ -526,7 +596,7 @@ export default function App() {
     try {
       await addDoc(logsRef, { target, type, status, waktu: timestamp24h, timestamp: Date.now() });
     } catch (error) {
-      console.error("Gagal mencatat log", error);
+      // Menyembunyikan log dari konsol agar lebih rapi
     }
   };
 
@@ -940,36 +1010,126 @@ export default function App() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <h2 className="text-2xl font-bold text-slate-800">Manajemen Jadwal</h2>
         <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-          <button onClick={prepareBlastWAPelatih} className="bg-teal-100 text-teal-700 px-4 py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-teal-200 font-medium"><Send size={18} /> Blast WA Pelatih</button>
-          <button onClick={handleCetakPresensi} className="bg-amber-100 text-amber-700 px-4 py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-amber-200 font-medium"><Printer size={18} /> Cetak PDF Presensi</button>
-          <button onClick={() => setIsQrModalOpen(true)} className="bg-emerald-100 text-emerald-700 px-4 py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-emerald-200 font-medium"><QrCode size={18} /> QR Pelatih (Global)</button>
-          <button onClick={() => setIsAddJadwalModalOpen(true)} className="bg-emerald-600 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-emerald-700 font-medium"><Plus size={18} /> Buat Jadwal Baru</button>
+          <button onClick={prepareBlastWAPelatih} className="bg-teal-100 text-teal-700 px-4 py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-teal-200 font-medium">
+            <Send size={18} /> Blast WA Pelatih
+          </button>
+          <button onClick={handleCetakPresensi} className="bg-amber-100 text-amber-700 px-4 py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-amber-200 font-medium">
+            <Printer size={18} /> Cetak PDF
+          </button>
+          <button onClick={() => setIsQrModalOpen(true)} className="bg-emerald-100 text-emerald-700 px-4 py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-emerald-200 font-medium">
+            <QrCode size={18} /> QR Global
+          </button>
+          <button onClick={() => setIsAddJadwalModalOpen(true)} className="bg-emerald-600 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-emerald-700 font-medium shadow-md">
+            <Plus size={18} /> Buat Jadwal
+          </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {jadwal.map((j) => (
-          <div key={j.docId} className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden flex flex-col">
-            <div className="bg-emerald-50 border-b border-emerald-100 p-4">
-              <div className="flex justify-between items-start">
-                <div>
-                  <h3 className="text-lg font-bold text-slate-800 leading-tight">{j.materi}</h3>
-                  <span className="inline-block mt-1 bg-emerald-100 text-emerald-700 text-xs px-2 py-0.5 rounded font-medium">Kec. {j.kecamatan}</span>
-                </div>
-                <span className="bg-emerald-100 text-emerald-800 text-xs px-2 py-1 rounded font-semibold">{j.displayId}</span>
-              </div>
-              <p className="text-sm text-slate-600 mt-2">Pemateri: <span className="font-medium">{j.pelatih}</span></p>
-            </div>
-            <div className="p-4 space-y-3 flex-1">
-              <div className="flex items-center gap-3 text-sm text-slate-600"><Clock size={16} className="text-slate-400" /><span>{j.tanggal} | {j.waktuMulai} - {j.waktuSelesai} WIB</span></div>
-              <div className="flex items-center gap-3 text-sm text-slate-600"><Users size={16} className="text-slate-400" /><span>Kuota: {j.terdaftar} / {j.kuota} Peserta</span></div>
-              <div className="pt-4 mt-2 border-t border-slate-100 grid grid-cols-2 gap-2">
-                <button onClick={() => sendWhatsAppMock(`Seluruh Peserta (${j.displayId})`, 'Blast Undangan')} className="flex flex-col xl:flex-row items-center justify-center gap-1 xl:gap-2 py-2 bg-emerald-100 text-emerald-700 text-xs sm:text-sm font-medium rounded-lg hover:bg-emerald-200"><MessageSquare size={16} /> Blast WA</button>
-                <button onClick={() => j.waPelatih ? openWhatsAppWeb(j.waPelatih, `Halo ${j.pelatih},\n\nMengingatkan kembali untuk jadwal pengisian materi *${j.materi}* pada tanggal ${j.tanggal} jam ${j.waktuMulai} - ${j.waktuSelesai} WIB di ${j.tempat}. Terima kasih!`, j.pelatih, 'Reminder Pelatih') : addToast('Nomor WA Pelatih belum diatur', 'error')} className="flex flex-col xl:flex-row items-center justify-center gap-1 xl:gap-2 py-2 bg-teal-100 text-teal-700 text-xs sm:text-sm font-medium rounded-lg hover:bg-teal-200"><Send size={16} /> WA Pelatih</button>
-              </div>
-            </div>
+      {/* Tabel Jadwal (Versi Rapi dengan tombol Reset) */}
+      <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse min-w-[1000px]">
+            <thead>
+              <tr className="bg-slate-50 border-b border-slate-100 text-slate-500 text-xs uppercase tracking-wider">
+                <th className="p-4 font-bold">ID</th>
+                <th className="p-4 font-bold">Materi Pelatihan</th>
+                <th className="p-4 font-bold">Pelatih / Pemateri</th>
+                <th className="p-4 font-bold">Satkoryon</th>
+                <th className="p-4 font-bold">Waktu & Lokasi</th>
+                <th className="p-4 font-bold">Kuota</th>
+                <th className="p-4 font-bold text-center">Aksi & Edit</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50">
+              {jadwal.map((j) => (
+                <tr key={j.docId} className="hover:bg-slate-50 transition-colors group">
+                  <td className="p-4">
+                    <span className="bg-emerald-50 text-emerald-700 text-[10px] px-2 py-1 rounded font-bold border border-emerald-100">
+                      {j.displayId}
+                    </span>
+                  </td>
+                  <td className="p-4">
+                    <p className="text-sm font-bold text-slate-800">{j.materi}</p>
+                  </td>
+                  <td className="p-4">
+                    <div className="flex flex-col">
+                      <span className="text-sm font-medium text-slate-700">{j.pelatih}</span>
+                      <span className="text-[10px] text-slate-400 font-mono">{j.waPelatih || '-'}</span>
+                    </div>
+                  </td>
+                  <td className="p-4">
+                    <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full border border-emerald-100">
+                      {j.kecamatan}
+                    </span>
+                  </td>
+                  <td className="p-4 text-[11px] text-slate-600 space-y-1">
+                    <div className="flex items-center gap-1.5"><Calendar size={12} className="text-slate-400"/> <b>{j.tanggal}</b></div>
+                    <div className="flex items-center gap-1.5"><Clock size={12} className="text-slate-400"/> {j.waktuMulai} - {j.waktuSelesai} WIB</div>
+                    <div className="flex items-center gap-1.5 italic"><MapPin size={12} className="text-slate-400"/> {j.tempat}</div>
+                  </td>
+                  <td className="p-4">
+                    <div className="flex flex-col gap-1">
+                      <div className="flex justify-between text-[10px] font-bold text-slate-500">
+                        <span>{j.terdaftar} / {j.kuota}</span>
+                        <span>{Math.round((j.terdaftar / j.kuota) * 100)}%</span>
+                      </div>
+                      <div className="w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-emerald-500 rounded-full transition-all duration-500" 
+                          style={{ width: `${(j.terdaftar / j.kuota) * 100}%` }}
+                        ></div>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="p-4">
+                    <div className="flex justify-center gap-2">
+                      {/* Tombol Blast WA */}
+                      <button 
+                        onClick={() => sendWhatsAppMock(`Seluruh Peserta ${j.displayId}`, 'Blast Pengumuman')}
+                        className="p-2 text-emerald-600 bg-emerald-50 rounded-lg hover:bg-emerald-600 hover:text-white transition shadow-sm"
+                        title="Blast ke Peserta"
+                      >
+                        <MessageSquare size={16} />
+                      </button>
+                      
+                      {/* Tombol WA Pelatih */}
+                      <button 
+                        onClick={() => j.waPelatih ? openWhatsAppWeb(j.waPelatih, `Halo Admin Satkorcab disini,\n\nMengingatkan kembali untuk jadwal pengisian materi *${j.materi}* pada hari/tanggal ${j.tanggal} jam ${j.waktuMulai} WIB di ${j.tempat}.`, j.pelatih, 'Reminder') : addToast('WA kosong', 'error')}
+                        className="p-2 text-teal-600 bg-teal-50 rounded-lg hover:bg-teal-600 hover:text-white transition shadow-sm"
+                        title="WA Pelatih"
+                      >
+                        <Send size={16} />
+                      </button>
+
+                      {/* Tombol Baru: Reset Presensi Jadwal */}
+                      <button 
+                        onClick={() => handleResetPresensiJadwal(j.docId, j.materi)}
+                        className="p-2 text-amber-600 bg-amber-50 rounded-lg hover:bg-amber-600 hover:text-white transition shadow-sm"
+                        title="Reset Absensi"
+                      >
+                        <RefreshCcw size={16} />
+                      </button>
+                      
+                      {/* Tombol Hapus Jadwal */}
+                      <button 
+                        onClick={() => handleDeleteJadwal(j.docId, j.materi)}
+                        className="p-2 text-red-600 bg-red-50 rounded-lg hover:bg-red-600 hover:text-white transition shadow-sm"
+                        title="Hapus Jadwal"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {jadwal.length === 0 && (
+          <div className="p-12 text-center text-slate-400 text-sm italic">
+            Belum ada jadwal yang dibuat. Klik tombol "Buat Jadwal" untuk memulai.
           </div>
-        ))}
+        )}
       </div>
     </div>
   );
@@ -1371,6 +1531,8 @@ service cloud.firestore {
       )}
 
       {scanTarget && <ScannerModal target={scanTarget} onClose={() => setScanTarget(null)} onSuccess={onScanSuccess} addToast={addToast} />}
+    </div
+    {scanTarget && <ScannerModal target={scanTarget} onClose={() => setScanTarget(null)} onSuccess={onScanSuccess} addToast={addToast} />}
     </div>
   );
 }
