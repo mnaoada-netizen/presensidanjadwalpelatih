@@ -5,7 +5,7 @@ import {
   Send, Clock, Menu, X, Printer, Briefcase,
   LogOut, Lock, User, MapPin, Key, RefreshCcw, 
   Trash2, AlertTriangle, Navigation, Loader2, Map,
-  Pencil, QrCode
+  Pencil, QrCode, Shield
 } from 'lucide-react';
 
 // --- FIREBASE IMPORTS ---
@@ -94,7 +94,7 @@ export default function App() {
   const [editPelatihData, setEditPelatihData] = useState(null);
 
   const [isAddJadwalModalOpen, setIsAddJadwalModalOpen] = useState(false);
-  const [newJadwal, setNewJadwal] = useState({ materi: '', pelatih: '', waPelatih: '', tanggal: '', waktuMulai: '', waktuSelesai: '', tempat: '', koordinat: '', kuota: '', kecamatan: 'Buaran', waktuDatang: '-', waktuPulang: '-' });
+  const [newJadwal, setNewJadwal] = useState({ jenis: 'Materi', materi: '', pelatih: '', waPelatih: '', tanggal: '', waktuMulai: '', waktuSelesai: '', tempat: '', koordinat: '', kuota: '', kecamatan: 'Buaran', waktuDatang: '-', waktuPulang: '-' });
   const [autoSendWA, setAutoSendWA] = useState(true);
 
   const [isEditJadwalModalOpen, setIsEditJadwalModalOpen] = useState(false);
@@ -381,11 +381,21 @@ export default function App() {
     addToast('Menyimpan jadwal ke Cloud...', 'info');
     const displayId = `J${String(jadwal.length + 1).padStart(3, '0')}`;
     const jadwalRef = collection(db, 'artifacts', appId, 'public', 'data', 'kader_jadwal');
-    const addedJadwal = { displayId, ...newJadwal, terdaftar: 0, statusPelatih: 'Belum Hadir', waktuDatang: '-', waktuPulang: '-' };
+    const addedJadwal = { 
+      displayId, 
+      ...newJadwal, 
+      jenis: newJadwal.jenis || 'Materi',
+      materi: newJadwal.jenis === 'Piket' ? 'Tugas Piket Diklatsar' : newJadwal.materi,
+      kuota: newJadwal.jenis === 'Piket' ? 0 : newJadwal.kuota,
+      terdaftar: 0, 
+      statusPelatih: 'Belum Hadir', 
+      waktuDatang: '-', 
+      waktuPulang: '-' 
+    };
     try {
       await addDoc(jadwalRef, addedJadwal);
       setIsAddJadwalModalOpen(false);
-      setNewJadwal({ materi: '', pelatih: '', waPelatih: '', tanggal: '', waktuMulai: '', waktuSelesai: '', tempat: '', koordinat: '', kuota: '', kecamatan: 'Buaran', waktuDatang: '-', waktuPulang: '-' });
+      setNewJadwal({ jenis: 'Materi', materi: '', pelatih: '', waPelatih: '', tanggal: '', waktuMulai: '', waktuSelesai: '', tempat: '', koordinat: '', kuota: '', kecamatan: 'Buaran', waktuDatang: '-', waktuPulang: '-' });
       addToast('Jadwal baru berhasil disimpan di Cloud!', 'success');
       if (autoSendWA && addedJadwal.waPelatih) { setTimeout(() => sendWhatsAppMock(addedJadwal.pelatih, 'Jadwal Pemateri Baru'), 1000); }
     } catch (error) {
@@ -393,7 +403,7 @@ export default function App() {
     }
   };
 
-  const openEditJadwal = (j) => { setEditJadwalData({ ...j, koordinat: j.koordinat || '' }); setIsEditJadwalModalOpen(true); };
+  const openEditJadwal = (j) => { setEditJadwalData({ ...j, jenis: j.jenis || 'Materi', koordinat: j.koordinat || '' }); setIsEditJadwalModalOpen(true); };
 
   const submitEditJadwal = async (e) => {
     e.preventDefault();
@@ -402,9 +412,13 @@ export default function App() {
     const jRef = doc(db, 'artifacts', appId, 'public', 'data', 'kader_jadwal', editJadwalData.docId);
     try {
       await updateDoc(jRef, {
-        materi: editJadwalData.materi, pelatih: editJadwalData.pelatih, waPelatih: editJadwalData.waPelatih,
+        jenis: editJadwalData.jenis || 'Materi',
+        materi: editJadwalData.jenis === 'Piket' ? 'Tugas Piket Diklatsar' : editJadwalData.materi,
+        pelatih: editJadwalData.pelatih, waPelatih: editJadwalData.waPelatih,
         kecamatan: editJadwalData.kecamatan, tempat: editJadwalData.tempat, koordinat: editJadwalData.koordinat,
-        tanggal: editJadwalData.tanggal, kuota: editJadwalData.kuota, waktuMulai: editJadwalData.waktuMulai, waktuSelesai: editJadwalData.waktuSelesai,
+        tanggal: editJadwalData.tanggal, 
+        kuota: editJadwalData.jenis === 'Piket' ? 0 : editJadwalData.kuota, 
+        waktuMulai: editJadwalData.waktuMulai, waktuSelesai: editJadwalData.waktuSelesai,
       });
       setIsEditJadwalModalOpen(false);
       setEditJadwalData(null);
@@ -507,10 +521,11 @@ export default function App() {
     const tableRows = jadwal.map((j, index) => {
       const hari = new Date(j.tanggal).toLocaleDateString('id-ID', { weekday: 'long' });
       const tanggalFormat = new Date(j.tanggal).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
-      return `<tr><td>${index + 1}</td><td>${hari}, ${tanggalFormat}</td><td>${j.waktuMulai} - ${j.waktuSelesai}</td><td>${j.materi}</td><td>${j.pelatih}</td><td style="text-align: center; font-weight: bold; color: ${j.waktuDatang !== '-' ? 'green' : '#94a3b8'}">${j.waktuDatang || '-'}</td><td style="text-align: center; font-weight: bold; color: ${j.waktuPulang !== '-' ? 'green' : '#94a3b8'}">${j.waktuPulang || '-'}</td></tr>`;
+      const materiDisplay = j.jenis === 'Piket' ? '<strong>🛡️ TUGAS PIKET</strong>' : j.materi;
+      return `<tr><td>${index + 1}</td><td>${hari}, ${tanggalFormat}</td><td>${j.waktuMulai} - ${j.waktuSelesai}</td><td>${materiDisplay}</td><td>${j.pelatih}</td><td style="text-align: center; font-weight: bold; color: ${j.waktuDatang !== '-' ? 'green' : '#94a3b8'}">${j.waktuDatang || '-'}</td><td style="text-align: center; font-weight: bold; color: ${j.waktuPulang !== '-' ? 'green' : '#94a3b8'}">${j.waktuPulang || '-'}</td></tr>`;
     }).join('');
 
-    const htmlContent = `<!DOCTYPE html><html><head><title>Laporan Presensi</title><style>body{font-family:sans-serif;padding:40px;color:#333;max-width:1000px;margin:auto}.no-print{text-align:right;margin-bottom:20px;padding-bottom:20px;border-bottom:1px dashed #cbd5e1}.btn-print{background:#2563eb;color:white;border:none;padding:10px 20px;border-radius:5px;cursor:pointer;font-weight:bold;font-size:14px}.header{text-align:center;border-bottom:2px solid #2563eb;padding-bottom:20px;margin-bottom:30px}.header h1{margin:0;color:#1e40af;font-size:24px;text-transform:uppercase}table{width:100%;border-collapse:collapse;margin-bottom:30px;font-size:14px}th,td{border:1px solid #cbd5e1;padding:12px;text-align:left}th{background-color:#f1f5f9;font-weight:bold;font-size:12px}.footer{margin-top:50px;text-align:right;font-size:14px}.signature-space{height:80px}.meta-info{margin-top:40px;font-size:12px;color:#64748b;font-style:italic}@media print{body{padding:0;max-width:none}.no-print{display:none}}</style></head><body><div class="no-print"><button class="btn-print" onclick="window.print()">🖨️ Cetak / Simpan PDF</button></div><div class="header"><h1>Rekapitulasi Presensi Pemateri / Pelatih</h1><p>Diklatsar Satkoryon Kecamatan ${namaKecamatan}</p></div><table><thead><tr><th width="5%">No</th><th width="15%">Hari / Tanggal</th><th width="15%">Sesi (WIB)</th><th width="20%">Materi Pelatihan</th><th width="25%">Nama Pelatih</th><th width="10%">Jam Datang</th><th width="10%">Jam Pulang</th></tr></thead><tbody>${tableRows}</tbody></table><div class="footer"><p>Pekalongan, ${printDate}</p><div class="signature-space"></div><p><strong>Admin Satkorcab</strong></p></div><div class="meta-info">* Dicetak tanggal ${printDate} jam ${printTime} WIB oleh Admin Satkorcab</div></body></html>`;
+    const htmlContent = `<!DOCTYPE html><html><head><title>Laporan Presensi</title><style>body{font-family:sans-serif;padding:40px;color:#333;max-width:1000px;margin:auto}.no-print{text-align:right;margin-bottom:20px;padding-bottom:20px;border-bottom:1px dashed #cbd5e1}.btn-print{background:#2563eb;color:white;border:none;padding:10px 20px;border-radius:5px;cursor:pointer;font-weight:bold;font-size:14px}.header{text-align:center;border-bottom:2px solid #2563eb;padding-bottom:20px;margin-bottom:30px}.header h1{margin:0;color:#1e40af;font-size:24px;text-transform:uppercase}table{width:100%;border-collapse:collapse;margin-bottom:30px;font-size:14px}th,td{border:1px solid #cbd5e1;padding:12px;text-align:left}th{background-color:#f1f5f9;font-weight:bold;font-size:12px}.footer{margin-top:50px;text-align:right;font-size:14px}.signature-space{height:80px}.meta-info{margin-top:40px;font-size:12px;color:#64748b;font-style:italic}@media print{body{padding:0;max-width:none}.no-print{display:none}}</style></head><body><div class="no-print"><button class="btn-print" onclick="window.print()">🖨️ Cetak / Simpan PDF</button></div><div class="header"><h1>Rekapitulasi Presensi Pemateri / Pelatih</h1><p>Diklatsar Satkoryon Kecamatan ${namaKecamatan}</p></div><table><thead><tr><th width="5%">No</th><th width="15%">Hari / Tanggal</th><th width="15%">Sesi (WIB)</th><th width="20%">Materi / Tugas</th><th width="25%">Nama Pelatih</th><th width="10%">Jam Datang</th><th width="10%">Jam Pulang</th></tr></thead><tbody>${tableRows}</tbody></table><div class="footer"><p>Pekalongan, ${printDate}</p><div class="signature-space"></div><p><strong>Admin Satkorcab</strong></p></div><div class="meta-info">* Dicetak tanggal ${printDate} jam ${printTime} WIB oleh Admin Satkorcab</div></body></html>`;
     printWindow.document.open(); printWindow.document.write(htmlContent); printWindow.document.close();
   };
 
@@ -577,7 +592,7 @@ export default function App() {
         </div>
         <div>
           <h3 className="text-xl font-bold text-slate-800">Panel Presensi Geofencing (GPS)</h3>
-          <p className="text-sm text-slate-500">Pilih jadwal mengajar Anda di bawah ini, sistem akan otomatis melacak jarak Anda.</p>
+          <p className="text-sm text-slate-500">Pilih jadwal mengajar/piket Anda di bawah ini, sistem akan otomatis melacak jarak Anda.</p>
         </div>
       </div>
       
@@ -595,7 +610,7 @@ export default function App() {
               <option value="">-- Sentuh untuk Pilih Jadwal --</option>
               {myJadwal.map(j => (
                 <option key={j.docId} value={j.docId}>
-                  {j.tanggal} | {j.waktuMulai} WIB - {j.materi} (Kec. {j.kecamatan})
+                  {j.tanggal} | {j.waktuMulai} WIB - {j.jenis === 'Piket' ? 'Tugas Piket' : `Materi: ${j.materi}`} (Kec. {j.kecamatan})
                 </option>
               ))}
             </select>
@@ -713,7 +728,7 @@ export default function App() {
                 {jadwal.slice(0, 5).map(j => (
                   <div key={j.docId} className="p-4 border border-slate-100 rounded-lg bg-slate-50 flex justify-between items-center">
                     <div>
-                      <h4 className="font-semibold text-slate-800">{j.materi}</h4>
+                      <h4 className="font-semibold text-slate-800">{j.jenis === 'Piket' ? '🛡️ Tugas Piket Diklatsar' : j.materi}</h4>
                       <p className="text-sm text-slate-500 flex items-center gap-1 mt-1"><Clock size={14}/> {j.tanggal} | {j.waktuMulai} - {j.waktuSelesai}</p>
                       <p className="text-xs text-indigo-600 font-medium mt-1">Satkoryon {j.kecamatan}</p>
                     </div>
@@ -770,7 +785,9 @@ export default function App() {
               <div key={j.docId} className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden flex flex-col">
                 <div className="bg-indigo-50 border-b border-indigo-100 p-5 flex flex-col justify-center relative">
                   <span className="absolute top-4 right-4 bg-indigo-100 text-indigo-700 text-xs px-2 py-1 rounded font-bold">{j.displayId}</span>
-                  <h3 className="text-lg font-bold text-slate-800 leading-tight mb-1 pr-10">{j.materi}</h3>
+                  <h3 className="text-lg font-bold text-slate-800 leading-tight mb-1 pr-10">
+                    {j.jenis === 'Piket' ? '🛡️ Tugas Piket Diklatsar' : j.materi}
+                  </h3>
                   <p className="text-sm text-indigo-600 font-medium">Satkoryon {j.kecamatan}</p>
                 </div>
                 <div className="p-5 flex-1 flex flex-col justify-between">
@@ -868,7 +885,9 @@ export default function App() {
               <div key={j.docId} className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden flex flex-col md:flex-row">
                 <div className="bg-blue-50 border-b md:border-b-0 md:border-r border-blue-100 p-6 md:w-1/3 flex flex-col justify-center">
                   <span className="inline-block bg-blue-100 text-blue-700 text-xs px-2 py-1 rounded font-bold w-max mb-2">{j.displayId}</span>
-                  <h3 className="text-xl font-bold text-slate-800 leading-tight mb-2">{j.materi}</h3>
+                  <h3 className="text-xl font-bold text-slate-800 leading-tight mb-2">
+                    {j.jenis === 'Piket' ? '🛡️ Tugas Piket Diklatsar' : j.materi}
+                  </h3>
                   <p className="text-sm text-blue-600 font-medium">Satkoryon {j.kecamatan}</p>
                 </div>
                 <div className="p-6 flex-1 flex flex-col justify-between">
@@ -916,7 +935,7 @@ export default function App() {
             <thead>
               <tr className="bg-slate-50 border-b border-slate-100 text-slate-500 text-xs uppercase tracking-wider">
                 <th className="p-4 font-bold">ID</th>
-                <th className="p-4 font-bold">Materi Pelatihan</th>
+                <th className="p-4 font-bold">Materi / Tugas</th>
                 <th className="p-4 font-bold">Pelatih / Pemateri</th>
                 <th className="p-4 font-bold">Satkoryon</th>
                 <th className="p-4 font-bold">Waktu & Lokasi</th>
@@ -935,7 +954,13 @@ export default function App() {
                       </span>
                     </td>
                     <td className="p-4">
-                      <p className="text-sm font-bold text-slate-800">{j.materi}</p>
+                      {j.jenis === 'Piket' ? (
+                        <span className="inline-flex items-center gap-1.5 bg-amber-100 text-amber-800 text-xs px-2.5 py-1 rounded-md font-bold border border-amber-200">
+                          <Shield size={14} /> TUGAS PIKET
+                        </span>
+                      ) : (
+                        <p className="text-sm font-bold text-slate-800">{j.materi}</p>
+                      )}
                     </td>
                     <td className="p-4">
                       <div className="flex flex-col">
@@ -954,18 +979,22 @@ export default function App() {
                       <div className="flex items-center gap-1.5 italic" title={j.koordinat ? `Titik: ${j.koordinat}` : 'Koordinat tidak diatur'}><MapPin size={12} className="text-slate-400"/> {j.tempat}</div>
                     </td>
                     <td className="p-4">
-                      <div className="flex flex-col gap-1">
-                        <div className="flex justify-between text-[10px] font-bold text-slate-500">
-                          <span>{j.terdaftar || 0} / {j.kuota || 0}</span>
-                          <span>{persentase}%</span>
+                      {j.jenis === 'Piket' ? (
+                        <span className="text-slate-400 text-xs italic">Non-Materi</span>
+                      ) : (
+                        <div className="flex flex-col gap-1">
+                          <div className="flex justify-between text-[10px] font-bold text-slate-500">
+                            <span>{j.terdaftar || 0} / {j.kuota || 0}</span>
+                            <span>{persentase}%</span>
+                          </div>
+                          <div className="w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                            <div 
+                              className="h-full bg-blue-500 rounded-full transition-all duration-500" 
+                              style={{ width: `${persentase}%` }}
+                            ></div>
+                          </div>
                         </div>
-                        <div className="w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                          <div 
-                            className="h-full bg-blue-500 rounded-full transition-all duration-500" 
-                            style={{ width: `${persentase}%` }}
-                          ></div>
-                        </div>
-                      </div>
+                      )}
                     </td>
                     <td className="p-4">
                       <div className="flex justify-center gap-2">
@@ -1247,16 +1276,33 @@ export default function App() {
             </div>
             <div className="overflow-y-auto p-4">
               <form onSubmit={submitAddJadwal} className="space-y-4">
-                <div><label className="block text-sm font-medium text-slate-700 mb-1">Materi Pelatihan</label><input required type="text" value={newJadwal.materi} onChange={e => setNewJadwal({...newJadwal, materi: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" placeholder="Contoh: Ke-NU-an" /></div>
+                
+                {/* --- TAMBAHAN JENIS PENUGASAN --- */}
+                <div className="col-span-2">
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Jenis Penugasan</label>
+                  <select required value={newJadwal.jenis || 'Materi'} onChange={e => setNewJadwal({...newJadwal, jenis: e.target.value, materi: e.target.value === 'Piket' ? 'Tugas Piket Diklatsar' : ''})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500 font-medium bg-slate-50">
+                    <option value="Materi">Pemateri / Instruktur (Sesuai Materi)</option>
+                    <option value="Piket">Tugas Piket Diklatsar (Non-Materi)</option>
+                  </select>
+                </div>
+
+                {/* Sembunyikan Input Materi jika yang dipilih adalah PIKET */}
+                {(!newJadwal.jenis || newJadwal.jenis === 'Materi') && (
+                  <div className="col-span-2">
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Materi Pelatihan</label>
+                    <input required type="text" value={newJadwal.materi} onChange={e => setNewJadwal({...newJadwal, materi: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" placeholder="Contoh: Ke-NU-an" />
+                  </div>
+                )}
+                
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Nama Pemateri</label>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Nama Pemateri / Petugas</label>
                     <select required value={newJadwal.pelatih} onChange={e => { const selected = pelatih.find(p => p.nama === e.target.value); setNewJadwal({...newJadwal, pelatih: selected ? selected.nama : e.target.value, waPelatih: selected ? selected.wa : ''}); }} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500">
                       <option value="">-- Pilih Pelatih --</option>
                       {pelatih.filter(p => p.status === 'Aktif').map(p => (<option key={p.docId} value={p.nama}>{p.nama}</option>))}
                     </select>
                   </div>
-                  <div><label className="block text-sm font-medium text-slate-700 mb-1">No. WA Pemateri</label><input required type="text" value={newJadwal.waPelatih} onChange={e => setNewJadwal({...newJadwal, waPelatih: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" placeholder="Otomatis terisi..." /></div>
+                  <div><label className="block text-sm font-medium text-slate-700 mb-1">No. WA</label><input required type="text" value={newJadwal.waPelatih} onChange={e => setNewJadwal({...newJadwal, waPelatih: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" placeholder="Otomatis terisi..." /></div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
@@ -1268,10 +1314,18 @@ export default function App() {
                   <div><label className="block text-sm font-medium text-slate-700 mb-1">Nama Tempat</label><input required type="text" value={newJadwal.tempat} onChange={e => setNewJadwal({...newJadwal, tempat: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" placeholder="Lokasi pelatihan..." /></div>
                 </div>
                 <div><label className="block text-sm font-medium text-slate-700 mb-1">Titik Koordinat Lokasi (Penting untuk GPS)</label><input required type="text" value={newJadwal.koordinat} onChange={e => setNewJadwal({...newJadwal, koordinat: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" placeholder="-6.8898, 109.6745" /></div>
+                
                 <div className="grid grid-cols-2 gap-4">
                   <div><label className="block text-sm font-medium text-slate-700 mb-1">Tanggal Pelatihan</label><input required type="date" value={newJadwal.tanggal} onChange={e => setNewJadwal({...newJadwal, tanggal: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" /></div>
-                  <div><label className="block text-sm font-medium text-slate-700 mb-1">Kuota Peserta</label><input required type="number" min="1" value={newJadwal.kuota} onChange={e => setNewJadwal({...newJadwal, kuota: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" placeholder="Contoh: 50" /></div>
+                  
+                  {/* Sembunyikan Kuota jika Piket */}
+                  {(!newJadwal.jenis || newJadwal.jenis === 'Materi') ? (
+                    <div><label className="block text-sm font-medium text-slate-700 mb-1">Kuota Peserta</label><input required type="number" min="1" value={newJadwal.kuota} onChange={e => setNewJadwal({...newJadwal, kuota: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" placeholder="Contoh: 50" /></div>
+                  ) : (
+                    <div><label className="block text-sm font-medium text-slate-700 mb-1">Kuota Peserta</label><input disabled type="text" value="Non-Materi" className="w-full border border-slate-200 rounded-lg p-2.5 text-sm bg-slate-100 text-slate-400 cursor-not-allowed" /></div>
+                  )}
                 </div>
+
                 <div className="grid grid-cols-2 gap-4">
                   <div><label className="block text-sm font-medium text-slate-700 mb-1">Jam Mulai</label><input required type="time" value={newJadwal.waktuMulai} onChange={e => setNewJadwal({...newJadwal, waktuMulai: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" /></div>
                   <div><label className="block text-sm font-medium text-slate-700 mb-1">Jam Selesai</label><input required type="time" value={newJadwal.waktuSelesai} onChange={e => setNewJadwal({...newJadwal, waktuSelesai: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" /></div>
@@ -1293,10 +1347,26 @@ export default function App() {
             </div>
             <div className="overflow-y-auto p-4">
               <form onSubmit={submitEditJadwal} className="space-y-4">
-                <div><label className="block text-sm font-medium text-slate-700 mb-1">Materi Pelatihan</label><input required type="text" value={editJadwalData.materi} onChange={e => setEditJadwalData({...editJadwalData, materi: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" /></div>
+                
+                {/* --- TAMBAHAN JENIS PENUGASAN (EDIT) --- */}
+                <div className="col-span-2">
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Jenis Penugasan</label>
+                  <select required value={editJadwalData.jenis || 'Materi'} onChange={e => setEditJadwalData({...editJadwalData, jenis: e.target.value, materi: e.target.value === 'Piket' ? 'Tugas Piket Diklatsar' : ''})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500 font-medium bg-slate-50">
+                    <option value="Materi">Pemateri / Instruktur (Sesuai Materi)</option>
+                    <option value="Piket">Tugas Piket Diklatsar (Non-Materi)</option>
+                  </select>
+                </div>
+
+                {(!editJadwalData.jenis || editJadwalData.jenis === 'Materi') && (
+                  <div className="col-span-2">
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Materi Pelatihan</label>
+                    <input required type="text" value={editJadwalData.materi} onChange={e => setEditJadwalData({...editJadwalData, materi: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" />
+                  </div>
+                )}
+
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Nama Pemateri</label>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Nama Pemateri / Petugas</label>
                     <select required value={editJadwalData.pelatih} onChange={e => { const selected = pelatih.find(p => p.nama === e.target.value); setEditJadwalData({...editJadwalData, pelatih: selected ? selected.nama : e.target.value, waPelatih: selected ? selected.wa : ''}); }} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500">
                       <option value="">-- Pilih Pelatih --</option>
                       {pelatih.filter(p => p.status === 'Aktif').map(p => (<option key={p.docId} value={p.nama}>{p.nama}</option>))}
@@ -1316,7 +1386,13 @@ export default function App() {
                 <div><label className="block text-sm font-medium text-slate-700 mb-1">Titik Koordinat Lokasi</label><input required type="text" value={editJadwalData.koordinat} onChange={e => setEditJadwalData({...editJadwalData, koordinat: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" placeholder="-6.8898, 109.6745" /></div>
                 <div className="grid grid-cols-2 gap-4">
                   <div><label className="block text-sm font-medium text-slate-700 mb-1">Tanggal Pelatihan</label><input required type="date" value={editJadwalData.tanggal} onChange={e => setEditJadwalData({...editJadwalData, tanggal: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" /></div>
-                  <div><label className="block text-sm font-medium text-slate-700 mb-1">Kuota Peserta</label><input required type="number" min="1" value={editJadwalData.kuota} onChange={e => setEditJadwalData({...editJadwalData, kuota: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" /></div>
+                  
+                  {(!editJadwalData.jenis || editJadwalData.jenis === 'Materi') ? (
+                     <div><label className="block text-sm font-medium text-slate-700 mb-1">Kuota Peserta</label><input required type="number" min="1" value={editJadwalData.kuota} onChange={e => setEditJadwalData({...editJadwalData, kuota: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" /></div>
+                  ) : (
+                     <div><label className="block text-sm font-medium text-slate-700 mb-1">Kuota Peserta</label><input disabled type="text" value="Non-Materi" className="w-full border border-slate-200 rounded-lg p-2.5 text-sm bg-slate-100 text-slate-400 cursor-not-allowed" /></div>
+                  )}
+
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div><label className="block text-sm font-medium text-slate-700 mb-1">Jam Mulai</label><input required type="time" value={editJadwalData.waktuMulai} onChange={e => setEditJadwalData({...editJadwalData, waktuMulai: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" /></div>
