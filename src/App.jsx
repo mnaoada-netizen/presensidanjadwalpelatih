@@ -4,7 +4,8 @@ import {
   Settings, Bell, Search, Plus, UserPlus, 
   Send, Clock, Menu, X, Printer, Briefcase,
   LogOut, Lock, User, MapPin, Key, RefreshCcw, 
-  Trash2, AlertTriangle, Navigation, Loader2, Map
+  Trash2, AlertTriangle, Navigation, Loader2, Map,
+  Pencil, QrCode
 } from 'lucide-react';
 
 // --- FIREBASE IMPORTS ---
@@ -31,7 +32,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-// Perbaikan identitas aplikasi agar tidak diblokir oleh sistem
+// Perbaikan identitas aplikasi
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'kaderisasi-apps-v1';
 
 const daftarKecamatan = [
@@ -43,12 +44,21 @@ const daftarKecamatan = [
 
 // --- RUMUS MENGHITUNG JARAK LOKASI (HAVERSINE) ---
 const calculateDistance = (lat1, lon1, lat2, lon2) => {
-  const R = 6371e3; // Radius bumi dalam meter
+  const R = 6371e3; 
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLon = (lon2 - lon1) * Math.PI / 180;
   const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return Math.round(R * c);
+};
+
+// --- PENGAMAN PERHITUNGAN PERSENTASE KUOTA ---
+const getPersentase = (terdaftar, kuota) => {
+  const t = Number(terdaftar) || 0;
+  const k = Number(kuota) || 0;
+  if (k <= 0) return 0;
+  const p = Math.round((t / k) * 100);
+  return p > 100 ? 100 : p;
 };
 
 export default function App() {
@@ -90,6 +100,7 @@ export default function App() {
   const [isEditJadwalModalOpen, setIsEditJadwalModalOpen] = useState(false);
   const [editJadwalData, setEditJadwalData] = useState(null);
 
+  const [isQrModalOpen, setIsQrModalOpen] = useState(false);
   const [isBlastModalOpen, setIsBlastModalOpen] = useState(false);
   const [blastTargets, setBlastTargets] = useState([]);
   const [blastMessage, setBlastMessage] = useState('Halo {nama_pelatih},\n\nMengingatkan kembali untuk jadwal pengisian materi *{materi}* pada tanggal {tanggal} di {tempat}.\n\nTerima kasih!');
@@ -914,67 +925,70 @@ export default function App() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {jadwal.map((j) => (
-                <tr key={j.docId} className="hover:bg-slate-50 transition-colors group">
-                  <td className="p-4">
-                    <span className="bg-blue-50 text-blue-700 text-[10px] px-2 py-1 rounded font-bold border border-blue-100">
-                      {j.displayId}
-                    </span>
-                  </td>
-                  <td className="p-4">
-                    <p className="text-sm font-bold text-slate-800">{j.materi}</p>
-                  </td>
-                  <td className="p-4">
-                    <div className="flex flex-col">
-                      <span className="text-sm font-medium text-slate-700">{j.pelatih}</span>
-                      <span className="text-[10px] text-slate-400 font-mono">{j.waPelatih || '-'}</span>
-                    </div>
-                  </td>
-                  <td className="p-4">
-                    <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded-full border border-blue-100">
-                      {j.kecamatan}
-                    </span>
-                  </td>
-                  <td className="p-4 text-[11px] text-slate-600 space-y-1">
-                    <div className="flex items-center gap-1.5"><Calendar size={12} className="text-slate-400"/> <b>{j.tanggal}</b></div>
-                    <div className="flex items-center gap-1.5"><Clock size={12} className="text-slate-400"/> {j.waktuMulai} - {j.waktuSelesai} WIB</div>
-                    <div className="flex items-center gap-1.5 italic" title={j.koordinat ? `Titik: ${j.koordinat}` : 'Koordinat tidak diatur'}><MapPin size={12} className="text-slate-400"/> {j.tempat}</div>
-                  </td>
-                  <td className="p-4">
-                    <div className="flex flex-col gap-1">
-                      <div className="flex justify-between text-[10px] font-bold text-slate-500">
-                        <span>{j.terdaftar} / {j.kuota}</span>
-                        <span>{Math.round((j.terdaftar / j.kuota) * 100)}%</span>
+              {jadwal.map((j) => {
+                const persentase = getPersentase(j.terdaftar, j.kuota);
+                return (
+                  <tr key={j.docId} className="hover:bg-slate-50 transition-colors group">
+                    <td className="p-4">
+                      <span className="bg-blue-50 text-blue-700 text-[10px] px-2 py-1 rounded font-bold border border-blue-100">
+                        {j.displayId}
+                      </span>
+                    </td>
+                    <td className="p-4">
+                      <p className="text-sm font-bold text-slate-800">{j.materi}</p>
+                    </td>
+                    <td className="p-4">
+                      <div className="flex flex-col">
+                        <span className="text-sm font-medium text-slate-700">{j.pelatih}</span>
+                        <span className="text-[10px] text-slate-400 font-mono">{j.waPelatih || '-'}</span>
                       </div>
-                      <div className="w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                        <div 
-                          className="h-full bg-blue-500 rounded-full transition-all duration-500" 
-                          style={{ width: `${(j.terdaftar / j.kuota) * 100}%` }}
-                        ></div>
+                    </td>
+                    <td className="p-4">
+                      <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded-full border border-blue-100">
+                        {j.kecamatan}
+                      </span>
+                    </td>
+                    <td className="p-4 text-[11px] text-slate-600 space-y-1">
+                      <div className="flex items-center gap-1.5"><Calendar size={12} className="text-slate-400"/> <b>{j.tanggal}</b></div>
+                      <div className="flex items-center gap-1.5"><Clock size={12} className="text-slate-400"/> {j.waktuMulai} - {j.waktuSelesai} WIB</div>
+                      <div className="flex items-center gap-1.5 italic" title={j.koordinat ? `Titik: ${j.koordinat}` : 'Koordinat tidak diatur'}><MapPin size={12} className="text-slate-400"/> {j.tempat}</div>
+                    </td>
+                    <td className="p-4">
+                      <div className="flex flex-col gap-1">
+                        <div className="flex justify-between text-[10px] font-bold text-slate-500">
+                          <span>{j.terdaftar || 0} / {j.kuota || 0}</span>
+                          <span>{persentase}%</span>
+                        </div>
+                        <div className="w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-blue-500 rounded-full transition-all duration-500" 
+                            style={{ width: `${persentase}%` }}
+                          ></div>
+                        </div>
                       </div>
-                    </div>
-                  </td>
-                  <td className="p-4">
-                    <div className="flex justify-center gap-2">
-                      <button onClick={() => sendWhatsAppMock(`Seluruh Peserta ${j.displayId}`, 'Blast Pengumuman')} className="p-2 text-emerald-600 bg-emerald-50 rounded-lg hover:bg-emerald-600 hover:text-white transition shadow-sm" title="Blast ke Peserta">
-                        <MessageSquare size={16} />
-                      </button>
-                      <button onClick={() => j.waPelatih ? openWhatsAppWeb(j.waPelatih, `Halo Admin Satkorcab disini,\n\nMengingatkan kembali untuk jadwal pengisian materi *${j.materi}* pada hari/tanggal ${j.tanggal} jam ${j.waktuMulai} WIB di ${j.tempat}.`, j.pelatih, 'Reminder') : addToast('WA kosong', 'error')} className="p-2 text-teal-600 bg-teal-50 rounded-lg hover:bg-teal-600 hover:text-white transition shadow-sm" title="WA Pelatih">
-                        <Send size={16} />
-                      </button>
-                      <button onClick={() => openEditJadwal(j)} className="p-2 text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-600 hover:text-white transition shadow-sm" title="Edit Jadwal">
-                        <Pencil size={16} />
-                      </button>
-                      <button onClick={() => handleResetPresensiJadwal(j.docId, j.materi)} className="p-2 text-amber-600 bg-amber-50 rounded-lg hover:bg-amber-600 hover:text-white transition shadow-sm" title="Reset Absensi">
-                        <RefreshCcw size={16} />
-                      </button>
-                      <button onClick={() => handleDeleteJadwal(j.docId, j.materi)} className="p-2 text-red-600 bg-red-50 rounded-lg hover:bg-red-600 hover:text-white transition shadow-sm" title="Hapus Jadwal">
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td className="p-4">
+                      <div className="flex justify-center gap-2">
+                        <button onClick={() => sendWhatsAppMock(`Seluruh Peserta ${j.displayId}`, 'Blast Pengumuman')} className="p-2 text-emerald-600 bg-emerald-50 rounded-lg hover:bg-emerald-600 hover:text-white transition shadow-sm" title="Blast ke Peserta">
+                          <MessageSquare size={16} />
+                        </button>
+                        <button onClick={() => j.waPelatih ? openWhatsAppWeb(j.waPelatih, `Halo Admin Satkorcab disini,\n\nMengingatkan kembali untuk jadwal pengisian materi *${j.materi}* pada hari/tanggal ${j.tanggal} jam ${j.waktuMulai} WIB di ${j.tempat}.`, j.pelatih, 'Reminder') : addToast('WA kosong', 'error')} className="p-2 text-teal-600 bg-teal-50 rounded-lg hover:bg-teal-600 hover:text-white transition shadow-sm" title="WA Pelatih">
+                          <Send size={16} />
+                        </button>
+                        <button onClick={() => openEditJadwal(j)} className="p-2 text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-600 hover:text-white transition shadow-sm" title="Edit Jadwal">
+                          <Pencil size={16} />
+                        </button>
+                        <button onClick={() => handleResetPresensiJadwal(j.docId, j.materi)} className="p-2 text-amber-600 bg-amber-50 rounded-lg hover:bg-amber-600 hover:text-white transition shadow-sm" title="Reset Absensi">
+                          <RefreshCcw size={16} />
+                        </button>
+                        <button onClick={() => handleDeleteJadwal(j.docId, j.materi)} className="p-2 text-red-600 bg-red-50 rounded-lg hover:bg-red-600 hover:text-white transition shadow-sm" title="Hapus Jadwal">
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -1107,7 +1121,7 @@ export default function App() {
   return (
     <div className="flex h-screen bg-slate-50 font-sans overflow-hidden">
       {isSidebarOpen && <div className="fixed inset-0 bg-black/50 z-10 md:hidden" onClick={() => setIsSidebarOpen(false)} />}
-      <Sidebar />
+      {Sidebar()}
       <div className="flex-1 flex flex-col h-full overflow-hidden">
         <header className="bg-white border-b border-slate-100 h-16 flex items-center justify-between px-4 lg:px-8 z-10">
           <div className="flex items-center gap-4">
@@ -1137,11 +1151,11 @@ export default function App() {
 
         <main className="flex-1 overflow-y-auto p-4 lg:p-8">
           <div className="max-w-6xl mx-auto">
-            {activeTab === 'dashboard' && <DashboardView />}
-            {activeTab === 'pelatih' && <PelatihView />}
-            {activeTab === 'jadwal' && <JadwalView />}
-            {activeTab === 'jadwal_saya' && <JadwalSayaView />}
-            {activeTab === 'whatsapp' && <WhatsAppView />}
+            {activeTab === 'dashboard' && DashboardView()}
+            {activeTab === 'pelatih' && PelatihView()}
+            {activeTab === 'jadwal' && JadwalView()}
+            {activeTab === 'jadwal_saya' && JadwalSayaView()}
+            {activeTab === 'whatsapp' && WhatsAppView()}
           </div>
         </main>
       </div>
