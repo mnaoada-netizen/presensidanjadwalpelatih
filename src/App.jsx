@@ -636,9 +636,9 @@ export default function App() {
                         <AlertTriangle size={14} className="shrink-0"/> {locationError}
                       </p>
                     ) : userDistance !== null ? (
-                      <p className={`text-sm mt-2 font-bold flex items-center gap-1.5 bg-slate-50 w-max px-3 py-1.5 rounded-lg border ${userDistance <= 200 ? 'text-emerald-600 border-emerald-200 bg-emerald-50' : 'text-red-500 border-red-200 bg-red-50'}`}>
-                        {userDistance <= 200 ? <CheckCircle size={16}/> : <X size={16}/>}
-                        📍 {userDistance} meter {userDistance > 200 && '(Di luar batas 200m)'}
+                      <p className={`text-xl mt-3 font-black flex items-center gap-2 w-max px-5 py-3 rounded-xl border-2 shadow-sm ${userDistance <= 200 ? 'text-emerald-700 border-emerald-300 bg-emerald-50' : 'text-red-700 border-red-300 bg-red-50'}`}>
+                        {userDistance <= 200 ? <CheckCircle size={24}/> : <X size={24}/>}
+                        📍 {userDistance} meter {userDistance > 200 && '(Di luar batas lokasi)'}
                       </p>
                     ) : null}
                   </div>
