@@ -472,10 +472,32 @@ export default function App() {
     try { await addDoc(logsRef, { target: target, type: type, status: status, waktu: timestamp24h, timestamp: Date.now() }); } catch (error) {}
   };
 
+  // --- PERBAIKAN FUNGSI WHATSAPP AGAR BISA TERBUKA OTOMATIS ---
   const openWhatsAppWeb = (phone, text, targetName, type) => {
-    const cleanPhone = phone.replace(/\D/g, '');
+    if (!phone || phone.trim() === '-' || phone.trim() === '') {
+      addToast('Nomor WhatsApp kosong atau tidak valid.', 'error');
+      return;
+    }
+
+    let cleanPhone = phone.replace(/\D/g, ''); // Hapus semua karakter selain angka
+    
+    // Konversi awalan 0 menjadi 62 agar format internasional valid untuk wa.me
+    if (cleanPhone.startsWith('0')) {
+      cleanPhone = '62' + cleanPhone.substring(1);
+    }
+
     const encodedText = encodeURIComponent(text);
-    window.open(`https://wa.me/${cleanPhone}?text=${encodedText}`, '_blank', 'noopener,noreferrer');
+    const waUrl = `https://wa.me/${cleanPhone}?text=${encodedText}`;
+
+    // Menggunakan trik anchor tag agar tidak mudah diblokir oleh browser pop-up blocker
+    const link = document.createElement('a');
+    link.href = waUrl;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
     addToast(`Membuka WhatsApp untuk ${targetName}...`, 'success');
     addLogToCloud(targetName, type, 'Dialihkan ke WA App');
   };
@@ -1150,7 +1172,7 @@ export default function App() {
   return (
     <div className="flex h-screen bg-slate-50 font-sans overflow-hidden">
       {isSidebarOpen && <div className="fixed inset-0 bg-black/50 z-10 md:hidden" onClick={() => setIsSidebarOpen(false)} />}
-      {Sidebar()}
+      <Sidebar />
       <div className="flex-1 flex flex-col h-full overflow-hidden">
         <header className="bg-white border-b border-slate-100 h-16 flex items-center justify-between px-4 lg:px-8 z-10">
           <div className="flex items-center gap-4">
@@ -1180,11 +1202,11 @@ export default function App() {
 
         <main className="flex-1 overflow-y-auto p-4 lg:p-8">
           <div className="max-w-6xl mx-auto">
-            {activeTab === 'dashboard' && DashboardView()}
-            {activeTab === 'pelatih' && PelatihView()}
-            {activeTab === 'jadwal' && JadwalView()}
-            {activeTab === 'jadwal_saya' && JadwalSayaView()}
-            {activeTab === 'whatsapp' && WhatsAppView()}
+            {activeTab === 'dashboard' && <DashboardView />}
+            {activeTab === 'pelatih' && <PelatihView />}
+            {activeTab === 'jadwal' && <JadwalView />}
+            {activeTab === 'jadwal_saya' && <JadwalSayaView />}
+            {activeTab === 'whatsapp' && <WhatsAppView />}
           </div>
         </main>
       </div>
@@ -1203,10 +1225,22 @@ export default function App() {
             </div>
             <form onSubmit={submitChangePassword} className="p-5 space-y-4">
               {changePassError && <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm text-center font-medium border border-red-100">{changePassError}</div>}
-              <div><label className="block text-sm font-medium text-slate-700 mb-1">Password Lama</label><input required type="password" value={changePassData.oldPass} onChange={e => setChangePassData({...changePassData, oldPass: e.target.value})} className="w-full border border-slate-200 rounded-lg p-3 text-sm focus:border-blue-500" /></div>
-              <div><label className="block text-sm font-medium text-slate-700 mb-1">Password Baru</label><input required type="password" value={changePassData.newPass} onChange={e => setChangePassData({...changePassData, newPass: e.target.value})} className="w-full border border-slate-200 rounded-lg p-3 text-sm focus:border-blue-500" minLength="6" /></div>
-              <div><label className="block text-sm font-medium text-slate-700 mb-1">Konfirmasi Password Baru</label><input required type="password" value={changePassData.confirmPass} onChange={e => setChangePassData({...changePassData, confirmPass: e.target.value})} className="w-full border border-slate-200 rounded-lg p-3 text-sm focus:border-blue-500" minLength="6" /></div>
-              <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-100"><button type="button" onClick={() => { setIsChangePassModalOpen(false); setChangePassError(''); }} className="px-4 py-2 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg">Batal</button><button type="submit" className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg">Simpan Password</button></div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Password Lama</label>
+                <input required type="password" value={changePassData.oldPass} onChange={e => setChangePassData({...changePassData, oldPass: e.target.value})} className="w-full border border-slate-200 rounded-lg p-3 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" placeholder="Masukkan password saat ini" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Password Baru</label>
+                <input required type="password" value={changePassData.newPass} onChange={e => setChangePassData({...changePassData, newPass: e.target.value})} className="w-full border border-slate-200 rounded-lg p-3 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" placeholder="Minimal 6 karakter" minLength="6" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Konfirmasi Password Baru</label>
+                <input required type="password" value={changePassData.confirmPass} onChange={e => setChangePassData({...changePassData, confirmPass: e.target.value})} className="w-full border border-slate-200 rounded-lg p-3 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" placeholder="Ulangi password baru" minLength="6" />
+              </div>
+              <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-100">
+                <button type="button" onClick={() => { setIsChangePassModalOpen(false); setChangePassError(''); }} className="px-4 py-2 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg">Batal</button>
+                <button type="submit" className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg">Simpan Password</button>
+              </div>
             </form>
           </div>
         </div>
