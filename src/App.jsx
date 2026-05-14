@@ -8,12 +8,10 @@ import {
   Pencil, QrCode, Shield, UploadCloud, UserCheck, Barcode, FileText
 } from 'lucide-react';
 
-// --- FIREBASE IMPORTS ---
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, onSnapshot, doc, updateDoc, addDoc, getDocs, deleteDoc, writeBatch, setDoc, getDoc } from 'firebase/firestore';
 
-// --- FIREBASE SETUP ---
 const myFirebaseConfig = {
   apiKey: "AIzaSyB50aeEo7fC8--qvEbbmP69K8H9rRlPucc",
   authDomain: "applikasipresensikaderisasi.firebaseapp.com",
@@ -32,7 +30,6 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-// Perbaikan identitas aplikasi
 const appId = typeof __app_id !== 'undefined' ? __app_id : 'kaderisasi-apps-v1';
 
 const daftarKecamatan = [
@@ -42,7 +39,6 @@ const daftarKecamatan = [
   'Siwalan', 'Wonokerto', 'Wiradesa', 'Bojong'
 ];
 
-// --- RUMUS MENGHITUNG JARAK LOKASI (HAVERSINE) ---
 const calculateDistance = (lat1, lon1, lat2, lon2) => {
   const R = 6371e3; 
   const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -61,13 +57,11 @@ const getPersentase = (terdaftar, kuota) => {
 };
 
 export default function App() {
-  // --- STATES CLOUD & KONEKSI ---
   const [firebaseUser, setFirebaseUser] = useState(null);
   const [isDbLoading, setIsDbLoading] = useState(true);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [dbPermissionError, setDbPermissionError] = useState(false);
 
-  // States Auth & Navigasi
   const [currentUser, setCurrentUser] = useState(null);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -77,13 +71,11 @@ export default function App() {
   const [toasts, setToasts] = useState([]);
   const [authConfig, setAuthConfig] = useState({ superadminPass: '123', adminPass: '123' });
   
-  // States Data Database
   const [pelatih, setPelatih] = useState([]);
   const [jadwal, setJadwal] = useState([]);
   const [waLogs, setWaLogs] = useState([]);
-  const [peserta, setPeserta] = useState([]); // STATE DATA PESERTA
+  const [peserta, setPeserta] = useState([]);
 
-  // States Modal Pelatih & Jadwal
   const [isAddPelatihModalOpen, setIsAddPelatihModalOpen] = useState(false);
   const [newPelatih, setNewPelatih] = useState({ nama: '', alamat: '', wa: '', bidang: '', status: 'Aktif' });
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
@@ -103,17 +95,14 @@ export default function App() {
   const [changePassData, setChangePassData] = useState({ oldPass: '', newPass: '', confirmPass: '' });
   const [changePassError, setChangePassError] = useState('');
 
-  // States Izin Peserta
   const [izinList, setIzinList] = useState([]);
   const [isAddIzinModalOpen, setIsAddIzinModalOpen] = useState(false);
   const [newIzin, setNewIzin] = useState({ namaPeserta: '', jamMulai: '', jamSelesai: '', materi: '', alasan: '' });
 
-  // States Scan Barcode Peserta
   const [isScanPesertaOpen, setIsScanPesertaOpen] = useState(false);
   const scannerPesertaRef = useRef(null);
   const isScanningPesertaRef = useRef(false);
 
-  // States Deteksi Lokasi Pelatih
   const [selectedJadwalPresensi, setSelectedJadwalPresensi] = useState('');
   const [userDistance, setUserDistance] = useState(null);
   const [isLocating, setIsLocating] = useState(false);
@@ -143,7 +132,6 @@ export default function App() {
       setFirebaseUser(user);
     });
 
-    // Pemuatan skrip html5-qrcode
     if (!window.Html5Qrcode) {
         const script = document.createElement('script');
         script.src = "https://unpkg.com/html5-qrcode";
@@ -225,7 +213,6 @@ export default function App() {
           setWaLogs(data);
       }, (err) => handlePermissionError(err, 'Logs'));
 
-      // Sinkronisasi Data Peserta
       unsubPeserta = onSnapshot(pesertaRef, (snapshot) => {
           if (!isMounted) return;
           const data = snapshot.docs.map(doc => ({ docId: doc.id, ...doc.data() }));
@@ -240,7 +227,6 @@ export default function App() {
           }
       }, (err) => handlePermissionError(err, 'Auth Config'));
 
-      // Sinkronisasi Data Izin
       unsubIzin = onSnapshot(izinRef, (snapshot) => {
           if (!isMounted) return;
           const data = snapshot.docs.map(doc => ({ docId: doc.id, ...doc.data() }));
@@ -263,7 +249,6 @@ export default function App() {
     };
   }, [firebaseUser]);
 
-  // --- FUNGSI GLOBAL ---
   const addToast = (message, type = 'success') => {
     const id = Date.now();
     setToasts(prev => [...prev, { id, message, type }]);
@@ -278,12 +263,10 @@ export default function App() {
     window.open(`https://www.google.com/maps/search/?api=1&query=${koordinat}`, '_blank', 'noopener,noreferrer');
   };
 
-  // --- LOGIKA LOGIN DENGAN 3 ROLE ---
   const handleLogin = (e) => {
     e.preventDefault();
     const cleanInputUser = username.trim().toLowerCase();
 
-    // 1. Role Superadmin
     if (cleanInputUser === 'superadmin' && password === (authConfig.superadminPass || '123')) {
       setCurrentUser({ username: 'superadmin', role: 'superadmin', name: 'Super Admin' });
       setActiveTab('dashboard'); 
@@ -292,26 +275,21 @@ export default function App() {
       return;
     }
 
-    // 2. Role Panitia (Admin Presensi Lapangan)
     if (cleanInputUser === 'admin' && password === (authConfig.adminPass || '123')) {
       setCurrentUser({ username: 'admin', role: 'admin', name: 'Panitia Kehadiran' });
-      setActiveTab('peserta'); // Langsung buka halaman scanner
+      setActiveTab('peserta'); 
       setLoginError(''); 
       addToast(`Akses Panitia Diberikan!`, 'success');
       return;
     }
 
-    // 3. Role Pelatih / Pemateri / Petugas Piket
     const foundPelatih = pelatih.find(p => p.nama.trim().toLowerCase() === cleanInputUser);
     if (foundPelatih) {
       const currentDbPassword = foundPelatih.password || '123';
       if (password === currentDbPassword) {
         setCurrentUser({ username: foundPelatih.nama, role: 'pelatih', name: foundPelatih.nama, docId: foundPelatih.docId });
-        
-        // Cek tab awal yang cocok
         const isPemateri = jadwal.some(j => j.pelatih === foundPelatih.nama && j.jenis !== 'Piket');
         setActiveTab(isPemateri ? 'jadwal_saya' : 'jadwal_piket'); 
-        
         setLoginError(''); 
         addToast(`Selamat datang, ${foundPelatih.nama}!`, 'success');
         return;
@@ -340,7 +318,6 @@ export default function App() {
     addToast('Anda telah logout.', 'info');
   };
 
-  // --- CRUD PELATIH ---
   const submitAddPelatih = async (e) => {
     e.preventDefault();
     if (!firebaseUser) return;
@@ -382,7 +359,6 @@ export default function App() {
     
     addToast('Menyimpan password baru...', 'info');
 
-    // Ganti password untuk admin & superadmin
     if (currentUser.role === 'superadmin' || currentUser.role === 'admin') {
       const isSuper = currentUser.role === 'superadmin';
       const currentPass = isSuper ? (authConfig.superadminPass || '123') : (authConfig.adminPass || '123');
@@ -399,7 +375,6 @@ export default function App() {
       return;
     }
 
-    // Ganti password untuk pelatih
     const userInDb = pelatih.find(p => p.docId === currentUser.docId);
     if (changePassData.oldPass !== (userInDb?.password || '123')) { setChangePassError('Password Lama salah!'); return; }
     try {
@@ -409,7 +384,6 @@ export default function App() {
     } catch (error) { setChangePassError('Gagal mengubah password.'); }
   };
 
-  // --- CRUD JADWAL ---
   const submitAddJadwal = async (e) => {
     e.preventDefault();
     if (!firebaseUser) return;
@@ -477,7 +451,6 @@ export default function App() {
     } catch (error) { addToast('Gagal mencatat presensi di Cloud.', 'error'); }
   };
 
-  // --- UPLOAD EXCEL (CSV) PESERTA ---
   const handleUploadCSV = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -491,7 +464,7 @@ export default function App() {
     reader.onload = async (evt) => {
       const text = evt.target.result;
       const rows = text.split('\n');
-      if (rows.length > 0) rows.shift(); // Hapus header baris pertama
+      if (rows.length > 0) rows.shift();
 
       let successCount = 0;
       const pesertaRef = collection(db, 'artifacts', appId, 'public', 'data', 'kader_peserta');
@@ -651,7 +624,6 @@ export default function App() {
     }
   };
 
-  // --- CRUD IZIN PESERTA ---
   const submitAddIzin = async (e) => {
     e.preventDefault();
     if (!firebaseUser) return;
@@ -773,7 +745,6 @@ export default function App() {
     else { setUserDistance(null); setLocationError(''); }
   }, [selectedJadwalPresensi, jadwal]);
 
-  // --- KOMPONEN TAMPILAN ---
   const Sidebar = () => {
     let menus = [];
     if (currentUser?.role === 'superadmin') {
@@ -886,14 +857,11 @@ export default function App() {
           </p>
         </div>
         
-        {/* Pembungkus Tombol untuk Admin dan Superadmin */}
         <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-          {/* Tombol Cetak Laporan (PDF) tampil untuk KEDUANYA (Admin Panitia & Super Admin) */}
           <button onClick={handleCetakPresensiPeserta} className="bg-amber-100 text-amber-700 px-4 py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-amber-200 font-bold shadow-sm transition">
             <Printer size={18} /> Laporan Absen (PDF)
           </button>
 
-          {/* Tombol Upload & Cetak Kartu HANYA untuk Superadmin */}
           {currentUser?.role === 'superadmin' && (
             <>
               <label className="bg-blue-100 text-blue-700 px-4 py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-blue-200 font-bold cursor-pointer transition">
@@ -1551,6 +1519,8 @@ export default function App() {
         <main className="flex-1 overflow-y-auto p-4 lg:p-8">
           <div className="max-w-6xl mx-auto">
             {activeTab === 'dashboard' && DashboardView()}
+            {activeTab === 'peserta' && PesertaView()}
+            {activeTab === 'izin' && IzinView()}
             {activeTab === 'pelatih' && PelatihView()}
             {activeTab === 'jadwal' && JadwalView()}
             {activeTab === 'jadwal_saya' && JadwalSayaView({jenis: 'Materi'})}
@@ -1578,6 +1548,39 @@ export default function App() {
               <div><label className="block text-sm font-medium text-slate-700 mb-1">Password Baru</label><input required type="password" value={changePassData.newPass} onChange={e => setChangePassData({...changePassData, newPass: e.target.value})} className="w-full border border-slate-200 rounded-lg p-3 text-sm focus:border-emerald-500" minLength="6" /></div>
               <div><label className="block text-sm font-medium text-slate-700 mb-1">Konfirmasi Password Baru</label><input required type="password" value={changePassData.confirmPass} onChange={e => setChangePassData({...changePassData, confirmPass: e.target.value})} className="w-full border border-slate-200 rounded-lg p-3 text-sm focus:border-emerald-500" minLength="6" /></div>
               <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-100"><button type="button" onClick={() => { setIsChangePassModalOpen(false); setChangePassError(''); }} className="px-4 py-2 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg">Batal</button><button type="submit" className="px-4 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg">Simpan Password</button></div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {isAddIzinModalOpen && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-lg w-full max-w-md overflow-hidden">
+            <div className="flex justify-between items-center p-4 border-b border-slate-100 bg-slate-50">
+              <h3 className="font-bold text-lg text-slate-800">Catat Izin Peserta</h3>
+              <button onClick={() => setIsAddIzinModalOpen(false)} className="text-slate-400 hover:text-slate-600"><X size={20}/></button>
+            </div>
+            <form onSubmit={submitAddIzin} className="p-4 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Nama Peserta</label>
+                <select required value={newIzin.namaPeserta} onChange={e => setNewIzin({...newIzin, namaPeserta: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-emerald-500 font-medium">
+                  <option value="">-- Pilih Peserta --</option>
+                  {peserta.map(p => (<option key={p.docId} value={p.nama}>{p.nama} ({p.kecamatan})</option>))}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div><label className="block text-sm font-medium text-slate-700 mb-1">Jam Keluar</label><input required type="time" value={newIzin.jamMulai} onChange={e => setNewIzin({...newIzin, jamMulai: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-emerald-500" /></div>
+                <div><label className="block text-sm font-medium text-slate-700 mb-1">Jam Kembali</label><input required type="time" value={newIzin.jamSelesai} onChange={e => setNewIzin({...newIzin, jamSelesai: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-emerald-500" /></div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Materi / Sesi saat ini</label>
+                <select required value={newIzin.materi} onChange={e => setNewIzin({...newIzin, materi: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-emerald-500 font-medium">
+                  <option value="">-- Pilih Sesi Materi --</option>
+                  {jadwal.map(j => (<option key={j.docId} value={j.materi}>{j.materi}</option>))}
+                </select>
+              </div>
+              <div><label className="block text-sm font-medium text-slate-700 mb-1">Alasan Izin</label><textarea required rows="2" value={newIzin.alasan} onChange={e => setNewIzin({...newIzin, alasan: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-emerald-500 resize-none" placeholder="Cth: Sakit, keperluan mendadak..." /></div>
+              <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-100"><button type="button" onClick={() => setIsAddIzinModalOpen(false)} className="px-4 py-2 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg">Batal</button><button type="submit" className="px-4 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg">Simpan Catatan</button></div>
             </form>
           </div>
         </div>
