@@ -439,12 +439,21 @@ export default function App() {
     try {
       await addDoc(jadwalRef, addedJadwal);
       setIsAddJadwalModalOpen(false);
-      setNewJadwal({ jenis: 'Materi', materi: '', pelatih: '', waPelatih: '', tanggal: '', waktuMulai: '', waktuSelesai: '', kuota: '', kecamatan: 'Buaran', waktuDatang: '-', waktuPulang: '-' });
       addToast('Jadwal baru berhasil disimpan di Cloud!', 'success');
       if (autoSendWA && addedJadwal.waPelatih) { setTimeout(() => sendWhatsAppMock(addedJadwal.pelatih, 'Jadwal Pemateri Baru'), 1000); }
     } catch (error) {
       addToast('Gagal menyimpan jadwal.', 'error');
     }
+  };
+
+  const openAddJadwal = (jenis) => {
+    setNewJadwal({
+      jenis: jenis,
+      materi: jenis === 'Piket' ? 'Tugas Piket Diklatsar' : '',
+      pelatih: '', waPelatih: '', tanggal: '', waktuMulai: '', waktuSelesai: '',
+      kuota: jenis === 'Piket' ? 0 : '', kecamatan: 'Buaran', waktuDatang: '-', waktuPulang: '-'
+    });
+    setIsAddJadwalModalOpen(true);
   };
 
   const openEditJadwal = (j) => { setEditJadwalData({ ...j, jenis: j.jenis || 'Materi' }); setIsEditJadwalModalOpen(true); };
@@ -912,15 +921,26 @@ export default function App() {
 
   const JadwalView = () => (
     <div className="space-y-6">
+      {/* Header & Tombol Aksi */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <h2 className="text-2xl font-bold text-slate-800">Manajemen Jadwal</h2>
         <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-          <button onClick={prepareBlastWAPelatih} className="bg-teal-100 text-teal-700 px-4 py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-teal-200 font-medium"><Send size={18} /> Blast WA Pelatih</button>
-          <button onClick={handleCetakPresensi} className="bg-amber-100 text-amber-700 px-4 py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-amber-200 font-medium"><Printer size={18} /> Cetak PDF Presensi</button>
-          <button onClick={() => setIsAddJadwalModalOpen(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-blue-700 font-medium shadow-md"><Plus size={18} /> Buat Jadwal Baru</button>
+          <button onClick={prepareBlastWAPelatih} className="bg-teal-100 text-teal-700 px-4 py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-teal-200 font-medium">
+            <Send size={18} /> Blast WA Pelatih
+          </button>
+          <button onClick={handleCetakPresensi} className="bg-amber-100 text-amber-700 px-4 py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-amber-200 font-medium">
+            <Printer size={18} /> Cetak PDF
+          </button>
+          <button onClick={() => openAddJadwal('Materi')} className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-blue-700 font-medium shadow-md">
+            <Plus size={18} /> Jadwal Materi
+          </button>
+          <button onClick={() => openAddJadwal('Piket')} className="bg-indigo-600 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-indigo-700 font-medium shadow-md">
+            <Shield size={18} /> Tugas Piket
+          </button>
         </div>
       </div>
 
+      {/* Tabel Jadwal (Versi Rapi dengan tombol Reset, Edit, Hapus) */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse min-w-[1000px]">
@@ -1295,23 +1315,13 @@ export default function App() {
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-lg w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
             <div className="flex justify-between items-center p-4 border-b border-slate-100 bg-slate-50">
-              <h3 className="font-bold text-lg text-slate-800">Buat Jadwal Baru</h3>
+              <h3 className="font-bold text-lg text-slate-800">{newJadwal.jenis === 'Piket' ? 'Buat Tugas Piket Baru' : 'Buat Jadwal Materi Baru'}</h3>
               <button onClick={() => setIsAddJadwalModalOpen(false)} className="text-slate-400 hover:text-slate-600"><X size={20}/></button>
             </div>
             <div className="overflow-y-auto p-4">
               <form onSubmit={submitAddJadwal} className="space-y-4">
                 
-                {/* --- TAMBAHAN JENIS PENUGASAN --- */}
-                <div className="col-span-2">
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Jenis Penugasan</label>
-                  <select required value={newJadwal.jenis || 'Materi'} onChange={e => setNewJadwal({...newJadwal, jenis: e.target.value, materi: e.target.value === 'Piket' ? 'Tugas Piket Diklatsar' : ''})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500 font-medium bg-slate-50">
-                    <option value="Materi">Pemateri / Instruktur (Sesuai Materi)</option>
-                    <option value="Piket">Tugas Piket Diklatsar (Non-Materi)</option>
-                  </select>
-                </div>
-
-                {/* Sembunyikan Input Materi jika yang dipilih adalah PIKET */}
-                {(!newJadwal.jenis || newJadwal.jenis === 'Materi') && (
+                {newJadwal.jenis === 'Materi' && (
                   <div className="col-span-2">
                     <label className="block text-sm font-medium text-slate-700 mb-1">Materi Pelatihan</label>
                     <input required type="text" value={newJadwal.materi} onChange={e => setNewJadwal({...newJadwal, materi: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" placeholder="Contoh: Ke-NU-an" />
@@ -1320,7 +1330,7 @@ export default function App() {
                 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Nama Pemateri / Petugas</label>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">{newJadwal.jenis === 'Piket' ? 'Nama Petugas Piket' : 'Nama Pemateri'}</label>
                     <select required value={newJadwal.pelatih} onChange={e => { const selected = pelatih.find(p => p.nama === e.target.value); setNewJadwal({...newJadwal, pelatih: selected ? selected.nama : e.target.value, waPelatih: selected ? selected.wa : ''}); }} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500">
                       <option value="">-- Pilih Pelatih --</option>
                       {pelatih.filter(p => p.status === 'Aktif').map(p => (<option key={p.docId} value={p.nama}>{p.nama}</option>))}
@@ -1329,10 +1339,9 @@ export default function App() {
                   <div><label className="block text-sm font-medium text-slate-700 mb-1">No. WA</label><input required type="text" value={newJadwal.waPelatih} onChange={e => setNewJadwal({...newJadwal, waPelatih: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" placeholder="Otomatis terisi..." /></div>
                 </div>
                 
-                {/* PERUBAHAN: Hapus Input Tempat & Koordinat, Ganti Keterangan */}
                 <div className="col-span-2 bg-blue-50 border border-blue-100 p-3 rounded-lg flex items-start gap-3">
                   <MapPin className="text-blue-500 shrink-0 mt-0.5" size={18} />
-                  <div>
+                  <div className="w-full">
                     <label className="block text-sm font-bold text-blue-800 mb-1">Pilih Satkoryon / Kecamatan</label>
                     <select required value={newJadwal.kecamatan} onChange={e => setNewJadwal({...newJadwal, kecamatan: e.target.value})} className="w-full border border-blue-200 rounded-lg p-2 text-sm focus:border-blue-500 font-medium">
                       {daftarKecamatan.map(kec => (<option key={kec} value={kec}>{kec}</option>))}
@@ -1342,13 +1351,10 @@ export default function App() {
                 </div>
                 
                 <div className="grid grid-cols-2 gap-4 mt-2">
-                  <div><label className="block text-sm font-medium text-slate-700 mb-1">Tanggal Pelatihan</label><input required type="date" value={newJadwal.tanggal} onChange={e => setNewJadwal({...newJadwal, tanggal: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" /></div>
+                  <div><label className="block text-sm font-medium text-slate-700 mb-1">Tanggal {newJadwal.jenis === 'Piket' ? 'Piket' : 'Pelatihan'}</label><input required type="date" value={newJadwal.tanggal} onChange={e => setNewJadwal({...newJadwal, tanggal: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" /></div>
                   
-                  {/* Sembunyikan Kuota jika Piket */}
-                  {(!newJadwal.jenis || newJadwal.jenis === 'Materi') ? (
+                  {newJadwal.jenis === 'Materi' && (
                     <div><label className="block text-sm font-medium text-slate-700 mb-1">Kuota Peserta</label><input required type="number" min="1" value={newJadwal.kuota} onChange={e => setNewJadwal({...newJadwal, kuota: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" placeholder="Contoh: 50" /></div>
-                  ) : (
-                    <div><label className="block text-sm font-medium text-slate-700 mb-1">Kuota Peserta</label><input disabled type="text" value="Non-Materi" className="w-full border border-slate-200 rounded-lg p-2.5 text-sm bg-slate-100 text-slate-400 cursor-not-allowed" /></div>
                   )}
                 </div>
 
@@ -1356,7 +1362,7 @@ export default function App() {
                   <div><label className="block text-sm font-medium text-slate-700 mb-1">Jam Mulai</label><input required type="time" value={newJadwal.waktuMulai} onChange={e => setNewJadwal({...newJadwal, waktuMulai: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" /></div>
                   <div><label className="block text-sm font-medium text-slate-700 mb-1">Jam Selesai</label><input required type="time" value={newJadwal.waktuSelesai} onChange={e => setNewJadwal({...newJadwal, waktuSelesai: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" /></div>
                 </div>
-                <div className="flex items-center gap-2 mt-4 p-3 bg-blue-50 rounded-lg border border-blue-100"><input type="checkbox" id="autoSend" checked={autoSendWA} onChange={(e) => setAutoSendWA(e.target.checked)} className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer" /><label htmlFor="autoSend" className="text-sm text-blue-800 cursor-pointer font-medium">Otomatis kirim info jadwal via WA (API) ke pemateri</label></div>
+                <div className="flex items-center gap-2 mt-4 p-3 bg-blue-50 rounded-lg border border-blue-100"><input type="checkbox" id="autoSend" checked={autoSendWA} onChange={(e) => setAutoSendWA(e.target.checked)} className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer" /><label htmlFor="autoSend" className="text-sm text-blue-800 cursor-pointer font-medium">Otomatis kirim info penugasan via WA (API)</label></div>
                 <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-100"><button type="button" onClick={() => setIsAddJadwalModalOpen(false)} className="px-4 py-2 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg">Batal</button><button type="submit" className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg">Simpan ke Cloud</button></div>
               </form>
             </div>
@@ -1368,22 +1374,13 @@ export default function App() {
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-lg w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
             <div className="flex justify-between items-center p-4 border-b border-slate-100 bg-slate-50">
-              <h3 className="font-bold text-lg text-slate-800">Edit Jadwal</h3>
+              <h3 className="font-bold text-lg text-slate-800">{editJadwalData.jenis === 'Piket' ? 'Edit Tugas Piket' : 'Edit Jadwal Materi'}</h3>
               <button onClick={() => { setIsEditJadwalModalOpen(false); setEditJadwalData(null); }} className="text-slate-400 hover:text-slate-600"><X size={20}/></button>
             </div>
             <div className="overflow-y-auto p-4">
               <form onSubmit={submitEditJadwal} className="space-y-4">
                 
-                {/* --- TAMBAHAN JENIS PENUGASAN (EDIT) --- */}
-                <div className="col-span-2">
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Jenis Penugasan</label>
-                  <select required value={editJadwalData.jenis || 'Materi'} onChange={e => setEditJadwalData({...editJadwalData, jenis: e.target.value, materi: e.target.value === 'Piket' ? 'Tugas Piket Diklatsar' : ''})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500 font-medium bg-slate-50">
-                    <option value="Materi">Pemateri / Instruktur (Sesuai Materi)</option>
-                    <option value="Piket">Tugas Piket Diklatsar (Non-Materi)</option>
-                  </select>
-                </div>
-
-                {(!editJadwalData.jenis || editJadwalData.jenis === 'Materi') && (
+                {editJadwalData.jenis === 'Materi' && (
                   <div className="col-span-2">
                     <label className="block text-sm font-medium text-slate-700 mb-1">Materi Pelatihan</label>
                     <input required type="text" value={editJadwalData.materi} onChange={e => setEditJadwalData({...editJadwalData, materi: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" />
@@ -1392,19 +1389,18 @@ export default function App() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Nama Pemateri / Petugas</label>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">{editJadwalData.jenis === 'Piket' ? 'Nama Petugas Piket' : 'Nama Pemateri'}</label>
                     <select required value={editJadwalData.pelatih} onChange={e => { const selected = pelatih.find(p => p.nama === e.target.value); setEditJadwalData({...editJadwalData, pelatih: selected ? selected.nama : e.target.value, waPelatih: selected ? selected.wa : ''}); }} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500">
                       <option value="">-- Pilih Pelatih --</option>
                       {pelatih.filter(p => p.status === 'Aktif').map(p => (<option key={p.docId} value={p.nama}>{p.nama}</option>))}
                     </select>
                   </div>
-                  <div><label className="block text-sm font-medium text-slate-700 mb-1">No. WA Pemateri</label><input required type="text" value={editJadwalData.waPelatih} onChange={e => setEditJadwalData({...editJadwalData, waPelatih: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" /></div>
+                  <div><label className="block text-sm font-medium text-slate-700 mb-1">No. WA</label><input required type="text" value={editJadwalData.waPelatih} onChange={e => setEditJadwalData({...editJadwalData, waPelatih: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" /></div>
                 </div>
 
-                {/* PERUBAHAN: Hapus Input Tempat & Koordinat, Ganti Keterangan */}
                 <div className="col-span-2 bg-blue-50 border border-blue-100 p-3 rounded-lg flex items-start gap-3">
                   <MapPin className="text-blue-500 shrink-0 mt-0.5" size={18} />
-                  <div>
+                  <div className="w-full">
                     <label className="block text-sm font-bold text-blue-800 mb-1">Ubah Satkoryon / Kecamatan</label>
                     <select required value={editJadwalData.kecamatan} onChange={e => setEditJadwalData({...editJadwalData, kecamatan: e.target.value})} className="w-full border border-blue-200 rounded-lg p-2 text-sm focus:border-blue-500 font-medium">
                       {daftarKecamatan.map(kec => (<option key={kec} value={kec}>{kec}</option>))}
@@ -1414,12 +1410,10 @@ export default function App() {
                 </div>
                 
                 <div className="grid grid-cols-2 gap-4 mt-2">
-                  <div><label className="block text-sm font-medium text-slate-700 mb-1">Tanggal Pelatihan</label><input required type="date" value={editJadwalData.tanggal} onChange={e => setEditJadwalData({...editJadwalData, tanggal: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" /></div>
+                  <div><label className="block text-sm font-medium text-slate-700 mb-1">Tanggal {editJadwalData.jenis === 'Piket' ? 'Piket' : 'Pelatihan'}</label><input required type="date" value={editJadwalData.tanggal} onChange={e => setEditJadwalData({...editJadwalData, tanggal: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" /></div>
                   
-                  {(!editJadwalData.jenis || editJadwalData.jenis === 'Materi') ? (
+                  {editJadwalData.jenis === 'Materi' && (
                      <div><label className="block text-sm font-medium text-slate-700 mb-1">Kuota Peserta</label><input required type="number" min="1" value={editJadwalData.kuota} onChange={e => setEditJadwalData({...editJadwalData, kuota: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" /></div>
-                  ) : (
-                     <div><label className="block text-sm font-medium text-slate-700 mb-1">Kuota Peserta</label><input disabled type="text" value="Non-Materi" className="w-full border border-slate-200 rounded-lg p-2.5 text-sm bg-slate-100 text-slate-400 cursor-not-allowed" /></div>
                   )}
 
                 </div>
