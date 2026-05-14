@@ -82,7 +82,7 @@ export default function App() {
   const [pelatih, setPelatih] = useState([]);
   const [jadwal, setJadwal] = useState([]);
   const [waLogs, setWaLogs] = useState([]);
-  const [lokasiData, setLokasiData] = useState([]); // TAMBAHAN: State Lokasi
+  const [lokasiData, setLokasiData] = useState([]); // State Lokasi
 
   // States untuk Modal Form Admin
   const [isAddPelatihModalOpen, setIsAddPelatihModalOpen] = useState(false);
@@ -101,7 +101,7 @@ export default function App() {
   const [isEditJadwalModalOpen, setIsEditJadwalModalOpen] = useState(false);
   const [editJadwalData, setEditJadwalData] = useState(null);
 
-  // TAMBAHAN: State untuk Modal Lokasi
+  // State untuk Modal Lokasi
   const [isEditLokasiModalOpen, setIsEditLokasiModalOpen] = useState(false);
   const [editLokasiData, setEditLokasiData] = useState(null);
 
@@ -293,7 +293,19 @@ export default function App() {
       const currentDbPassword = foundPelatih.password || '123';
       if (password === currentDbPassword) {
         setCurrentUser({ username: foundPelatih.nama, role: 'pelatih', name: foundPelatih.nama, docId: foundPelatih.docId });
-        setActiveTab('dashboard'); 
+        
+        // Pengecekan otomatis untuk menentukan Tab Default setelah login
+        const hasMateri = jadwal.some(j => j.pelatih === foundPelatih.nama && j.jenis !== 'Piket');
+        const hasPiket = jadwal.some(j => j.pelatih === foundPelatih.nama && j.jenis === 'Piket');
+        
+        if (hasMateri) {
+          setActiveTab('dashboard');
+        } else if (hasPiket) {
+          setActiveTab('dashboard');
+        } else {
+          setActiveTab('dashboard');
+        }
+
         setLoginError('');
         addToast(`Selamat datang, ${foundPelatih.nama}!`, 'success');
         return;
@@ -919,6 +931,108 @@ export default function App() {
     </div>
   );
 
+  const PelatihView = () => (
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <h2 className="text-2xl font-bold text-slate-800">Data Seluruh Pelatih</h2>
+        <button onClick={() => setIsAddPelatihModalOpen(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-700 shadow-sm">
+          <UserPlus size={18} /> Tambah Pelatih Manual
+        </button>
+      </div>
+
+      <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse min-w-[800px]">
+            <thead>
+              <tr className="bg-slate-50 border-b border-slate-100 text-slate-500 text-sm whitespace-nowrap">
+                <th className="p-4 font-semibold">ID</th>
+                <th className="p-4 font-semibold">Nama Pelatih</th>
+                <th className="p-4 font-semibold">Alamat</th>
+                <th className="p-4 font-semibold">Bidang Keahlian</th>
+                <th className="p-4 font-semibold">No. WhatsApp</th>
+                <th className="p-4 font-semibold">Status</th>
+                <th className="p-4 font-semibold text-center">Aksi</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pelatih.map((p) => (
+                <tr key={p.docId} className="border-b border-slate-50 hover:bg-slate-50">
+                  <td className="p-4 text-sm font-medium text-slate-700">{p.displayId}</td>
+                  <td className="p-4 text-sm font-semibold text-slate-800">{p.nama}</td>
+                  <td className="p-4 text-sm text-slate-600 max-w-[150px] truncate" title={p.alamat}>{p.alamat || '-'}</td>
+                  <td className="p-4 text-sm text-slate-600">{p.bidang}</td>
+                  <td className="p-4 text-sm text-slate-600">{p.wa}</td>
+                  <td className="p-4"><span className={`px-2.5 py-1 rounded-full text-xs font-medium border ${p.status === 'Aktif' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>{p.status}</span></td>
+                  <td className="p-4 flex justify-center gap-2">
+                    <button onClick={() => handleResetPassword(p)} className="p-1.5 text-amber-600 hover:text-amber-800 hover:bg-amber-100 rounded-md" title="Reset Password ke 123">
+                      <RefreshCcw size={18} />
+                    </button>
+                    <button onClick={() => openEditPelatih(p)} className="p-1.5 text-blue-600 hover:text-blue-800 hover:bg-blue-100 rounded-md" title="Edit Data Pelatih">
+                      <Pencil size={18} />
+                    </button>
+                    <button onClick={() => openWhatsAppWeb(p.wa, `Halo ${p.nama},\n\nMohon kesediaannya untuk jadwal pelatihan mendatang.`, p.nama, 'Pesan Personal')} className="p-1.5 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-100 rounded-md" title="Kirim Pesan WA Langsung">
+                      <Send size={18} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+
+  const JadwalSayaView = ({ jenis }) => {
+    const myJadwal = jadwal.filter(j => j.pelatih === currentUser.name && (jenis === 'Piket' ? j.jenis === 'Piket' : j.jenis !== 'Piket'));
+    const title = jenis === 'Piket' ? 'Tugas Piket Saya' : 'Jadwal Materi Saya';
+
+    return (
+      <div className="space-y-6">
+        <h2 className="text-2xl font-bold text-slate-800">{title}</h2>
+        {myJadwal.length === 0 ? (
+          <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-8 text-center text-slate-500">Belum ada {jenis === 'Piket' ? 'tugas piket' : 'jadwal materi'} yang ditugaskan kepada Anda.</div>
+        ) : (
+          <div className="grid grid-cols-1 gap-6">
+            {myJadwal.map((j) => {
+              const sjLokasi = lokasiData.find(l => l.kecamatan === j.kecamatan);
+              return (
+              <div key={j.docId} className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden flex flex-col md:flex-row">
+                <div className={`${jenis === 'Piket' ? 'bg-amber-50 border-amber-100' : 'bg-blue-50 border-blue-100'} border-b md:border-b-0 md:border-r p-6 md:w-1/3 flex flex-col justify-center`}>
+                  <span className={`inline-block ${jenis === 'Piket' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'} text-xs px-2 py-1 rounded font-bold w-max mb-2`}>{j.displayId}</span>
+                  <h3 className="text-xl font-bold text-slate-800 leading-tight mb-2">
+                    {j.jenis === 'Piket' ? '🛡️ Tugas Piket Diklatsar' : j.materi}
+                  </h3>
+                  <p className={`text-sm ${jenis === 'Piket' ? 'text-amber-600' : 'text-blue-600'} font-medium`}>Satkoryon {j.kecamatan}</p>
+                </div>
+                <div className="p-6 flex-1 flex flex-col justify-between">
+                  <div className="grid grid-cols-2 gap-4 mb-6">
+                    <div><p className="text-xs text-slate-500 font-medium mb-1">Tanggal & Sesi</p><p className="text-sm font-semibold text-slate-800 flex items-center gap-2"><Calendar size={16} className="text-slate-400"/> {j.tanggal}</p><p className="text-sm font-semibold text-slate-800 flex items-center gap-2 mt-1"><Clock size={16} className="text-slate-400"/> {j.waktuMulai} - {j.waktuSelesai} WIB</p></div>
+                    <div><p className="text-xs text-slate-500 font-medium mb-1">Lokasi</p><p className="text-sm font-semibold text-slate-800">{sjLokasi?.tempat || '-'}</p></div>
+                  </div>
+                  <div className="border-t border-slate-100 pt-4 flex flex-col sm:flex-row items-center gap-4 justify-between">
+                    <div className="flex items-center gap-4 text-sm font-medium bg-slate-50 p-3 rounded-lg w-full">
+                      <span className={j.waktuDatang !== '-' ? 'text-emerald-600' : 'text-slate-500'}>Datang: {j.waktuDatang}</span>
+                      <span className={j.waktuPulang !== '-' ? 'text-emerald-600' : 'text-slate-500'}>Pulang: {j.waktuPulang}</span>
+                    </div>
+                    {sjLokasi && sjLokasi.koordinat && (
+                      <button onClick={() => openGoogleMaps(sjLokasi.koordinat)} className="mt-2 sm:mt-0 py-2 px-4 flex items-center justify-center gap-2 bg-indigo-100 text-indigo-700 text-sm font-medium rounded-lg hover:bg-indigo-200 transition whitespace-nowrap">
+                        <Map size={16} /> Buka Peta
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )})}
+          </div>
+        )}
+
+        {/* Panel Presensi Ditempatkan Tersendiri */}
+        {renderPanelPresensi(myJadwal)}
+      </div>
+    );
+  };
+
   const JadwalView = () => (
     <div className="space-y-6">
       {/* Header & Tombol Aksi */}
@@ -1197,7 +1311,8 @@ export default function App() {
             {activeTab === 'pelatih' && <PelatihView />}
             {activeTab === 'jadwal' && <JadwalView />}
             {activeTab === 'lokasi' && <LokasiView />}
-            {activeTab === 'jadwal_saya' && <JadwalSayaView />}
+            {activeTab === 'jadwal_materi' && <JadwalSayaView jenis="Materi" />}
+            {activeTab === 'jadwal_piket' && <JadwalSayaView jenis="Piket" />}
             {activeTab === 'whatsapp' && <WhatsAppView />}
           </div>
         </main>
@@ -1315,13 +1430,23 @@ export default function App() {
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-lg w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
             <div className="flex justify-between items-center p-4 border-b border-slate-100 bg-slate-50">
-              <h3 className="font-bold text-lg text-slate-800">{newJadwal.jenis === 'Piket' ? 'Buat Tugas Piket Baru' : 'Buat Jadwal Materi Baru'}</h3>
+              <h3 className="font-bold text-lg text-slate-800">Buat Jadwal Baru</h3>
               <button onClick={() => setIsAddJadwalModalOpen(false)} className="text-slate-400 hover:text-slate-600"><X size={20}/></button>
             </div>
             <div className="overflow-y-auto p-4">
               <form onSubmit={submitAddJadwal} className="space-y-4">
                 
-                {newJadwal.jenis === 'Materi' && (
+                {/* --- TAMBAHAN JENIS PENUGASAN --- */}
+                <div className="col-span-2">
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Jenis Penugasan</label>
+                  <select required value={newJadwal.jenis || 'Materi'} onChange={e => setNewJadwal({...newJadwal, jenis: e.target.value, materi: e.target.value === 'Piket' ? 'Tugas Piket Diklatsar' : ''})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500 font-medium bg-slate-50">
+                    <option value="Materi">Pemateri / Instruktur (Sesuai Materi)</option>
+                    <option value="Piket">Tugas Piket Diklatsar (Non-Materi)</option>
+                  </select>
+                </div>
+
+                {/* Sembunyikan Input Materi jika yang dipilih adalah PIKET */}
+                {(!newJadwal.jenis || newJadwal.jenis === 'Materi') && (
                   <div className="col-span-2">
                     <label className="block text-sm font-medium text-slate-700 mb-1">Materi Pelatihan</label>
                     <input required type="text" value={newJadwal.materi} onChange={e => setNewJadwal({...newJadwal, materi: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" placeholder="Contoh: Ke-NU-an" />
@@ -1330,7 +1455,7 @@ export default function App() {
                 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">{newJadwal.jenis === 'Piket' ? 'Nama Petugas Piket' : 'Nama Pemateri'}</label>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Nama Pemateri / Petugas</label>
                     <select required value={newJadwal.pelatih} onChange={e => { const selected = pelatih.find(p => p.nama === e.target.value); setNewJadwal({...newJadwal, pelatih: selected ? selected.nama : e.target.value, waPelatih: selected ? selected.wa : ''}); }} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500">
                       <option value="">-- Pilih Pelatih --</option>
                       {pelatih.filter(p => p.status === 'Aktif').map(p => (<option key={p.docId} value={p.nama}>{p.nama}</option>))}
@@ -1351,9 +1476,10 @@ export default function App() {
                 </div>
                 
                 <div className="grid grid-cols-2 gap-4 mt-2">
-                  <div><label className="block text-sm font-medium text-slate-700 mb-1">Tanggal {newJadwal.jenis === 'Piket' ? 'Piket' : 'Pelatihan'}</label><input required type="date" value={newJadwal.tanggal} onChange={e => setNewJadwal({...newJadwal, tanggal: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" /></div>
+                  <div><label className="block text-sm font-medium text-slate-700 mb-1">Tanggal Pelatihan</label><input required type="date" value={newJadwal.tanggal} onChange={e => setNewJadwal({...newJadwal, tanggal: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" /></div>
                   
-                  {newJadwal.jenis === 'Materi' && (
+                  {/* Sembunyikan Kuota jika Piket */}
+                  {(!newJadwal.jenis || newJadwal.jenis === 'Materi') && (
                     <div><label className="block text-sm font-medium text-slate-700 mb-1">Kuota Peserta</label><input required type="number" min="1" value={newJadwal.kuota} onChange={e => setNewJadwal({...newJadwal, kuota: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" placeholder="Contoh: 50" /></div>
                   )}
                 </div>
@@ -1362,7 +1488,7 @@ export default function App() {
                   <div><label className="block text-sm font-medium text-slate-700 mb-1">Jam Mulai</label><input required type="time" value={newJadwal.waktuMulai} onChange={e => setNewJadwal({...newJadwal, waktuMulai: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" /></div>
                   <div><label className="block text-sm font-medium text-slate-700 mb-1">Jam Selesai</label><input required type="time" value={newJadwal.waktuSelesai} onChange={e => setNewJadwal({...newJadwal, waktuSelesai: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" /></div>
                 </div>
-                <div className="flex items-center gap-2 mt-4 p-3 bg-blue-50 rounded-lg border border-blue-100"><input type="checkbox" id="autoSend" checked={autoSendWA} onChange={(e) => setAutoSendWA(e.target.checked)} className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer" /><label htmlFor="autoSend" className="text-sm text-blue-800 cursor-pointer font-medium">Otomatis kirim info penugasan via WA (API)</label></div>
+                <div className="flex items-center gap-2 mt-4 p-3 bg-blue-50 rounded-lg border border-blue-100"><input type="checkbox" id="autoSend" checked={autoSendWA} onChange={(e) => setAutoSendWA(e.target.checked)} className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer" /><label htmlFor="autoSend" className="text-sm text-blue-800 cursor-pointer font-medium">Otomatis kirim info jadwal via WA (API) ke pemateri</label></div>
                 <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-100"><button type="button" onClick={() => setIsAddJadwalModalOpen(false)} className="px-4 py-2 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg">Batal</button><button type="submit" className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg">Simpan ke Cloud</button></div>
               </form>
             </div>
@@ -1374,13 +1500,22 @@ export default function App() {
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-lg w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
             <div className="flex justify-between items-center p-4 border-b border-slate-100 bg-slate-50">
-              <h3 className="font-bold text-lg text-slate-800">{editJadwalData.jenis === 'Piket' ? 'Edit Tugas Piket' : 'Edit Jadwal Materi'}</h3>
+              <h3 className="font-bold text-lg text-slate-800">Edit Jadwal</h3>
               <button onClick={() => { setIsEditJadwalModalOpen(false); setEditJadwalData(null); }} className="text-slate-400 hover:text-slate-600"><X size={20}/></button>
             </div>
             <div className="overflow-y-auto p-4">
               <form onSubmit={submitEditJadwal} className="space-y-4">
                 
-                {editJadwalData.jenis === 'Materi' && (
+                {/* --- TAMBAHAN JENIS PENUGASAN (EDIT) --- */}
+                <div className="col-span-2">
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Jenis Penugasan</label>
+                  <select required value={editJadwalData.jenis || 'Materi'} onChange={e => setEditJadwalData({...editJadwalData, jenis: e.target.value, materi: e.target.value === 'Piket' ? 'Tugas Piket Diklatsar' : ''})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500 font-medium bg-slate-50">
+                    <option value="Materi">Pemateri / Instruktur (Sesuai Materi)</option>
+                    <option value="Piket">Tugas Piket Diklatsar (Non-Materi)</option>
+                  </select>
+                </div>
+
+                {(!editJadwalData.jenis || editJadwalData.jenis === 'Materi') && (
                   <div className="col-span-2">
                     <label className="block text-sm font-medium text-slate-700 mb-1">Materi Pelatihan</label>
                     <input required type="text" value={editJadwalData.materi} onChange={e => setEditJadwalData({...editJadwalData, materi: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" />
@@ -1389,15 +1524,15 @@ export default function App() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">{editJadwalData.jenis === 'Piket' ? 'Nama Petugas Piket' : 'Nama Pemateri'}</label>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Nama Pemateri / Petugas</label>
                     <select required value={editJadwalData.pelatih} onChange={e => { const selected = pelatih.find(p => p.nama === e.target.value); setEditJadwalData({...editJadwalData, pelatih: selected ? selected.nama : e.target.value, waPelatih: selected ? selected.wa : ''}); }} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500">
                       <option value="">-- Pilih Pelatih --</option>
                       {pelatih.filter(p => p.status === 'Aktif').map(p => (<option key={p.docId} value={p.nama}>{p.nama}</option>))}
                     </select>
                   </div>
-                  <div><label className="block text-sm font-medium text-slate-700 mb-1">No. WA</label><input required type="text" value={editJadwalData.waPelatih} onChange={e => setEditJadwalData({...editJadwalData, waPelatih: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" /></div>
+                  <div><label className="block text-sm font-medium text-slate-700 mb-1">No. WA Pemateri</label><input required type="text" value={editJadwalData.waPelatih} onChange={e => setEditJadwalData({...editJadwalData, waPelatih: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" /></div>
                 </div>
-
+                
                 <div className="col-span-2 bg-blue-50 border border-blue-100 p-3 rounded-lg flex items-start gap-3">
                   <MapPin className="text-blue-500 shrink-0 mt-0.5" size={18} />
                   <div className="w-full">
@@ -1408,11 +1543,11 @@ export default function App() {
                     <p className="text-[10px] text-blue-600 mt-2 font-medium">Lokasi dan Titik GPS akan mengikuti pengaturan di menu <b>Master Titik Lokasi</b>.</p>
                   </div>
                 </div>
-                
+
                 <div className="grid grid-cols-2 gap-4 mt-2">
-                  <div><label className="block text-sm font-medium text-slate-700 mb-1">Tanggal {editJadwalData.jenis === 'Piket' ? 'Piket' : 'Pelatihan'}</label><input required type="date" value={editJadwalData.tanggal} onChange={e => setEditJadwalData({...editJadwalData, tanggal: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" /></div>
+                  <div><label className="block text-sm font-medium text-slate-700 mb-1">Tanggal Pelatihan</label><input required type="date" value={editJadwalData.tanggal} onChange={e => setEditJadwalData({...editJadwalData, tanggal: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" /></div>
                   
-                  {editJadwalData.jenis === 'Materi' && (
+                  {(!editJadwalData.jenis || editJadwalData.jenis === 'Materi') && (
                      <div><label className="block text-sm font-medium text-slate-700 mb-1">Kuota Peserta</label><input required type="number" min="1" value={editJadwalData.kuota} onChange={e => setEditJadwalData({...editJadwalData, kuota: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" /></div>
                   )}
 
