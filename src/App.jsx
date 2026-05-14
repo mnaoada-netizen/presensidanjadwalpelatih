@@ -8,10 +8,12 @@ import {
   Pencil, QrCode, Shield, UploadCloud, UserCheck, Barcode, FileText
 } from 'lucide-react';
 
+// --- FIREBASE IMPORTS ---
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, onSnapshot, doc, updateDoc, addDoc, getDocs, deleteDoc, writeBatch, setDoc, getDoc } from 'firebase/firestore';
 
+// --- FIREBASE SETUP ---
 const myFirebaseConfig = {
   apiKey: "AIzaSyB50aeEo7fC8--qvEbbmP69K8H9rRlPucc",
   authDomain: "applikasipresensikaderisasi.firebaseapp.com",
