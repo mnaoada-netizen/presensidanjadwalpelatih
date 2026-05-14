@@ -1809,7 +1809,7 @@ export default function App() {
         </div>
       )}
 
-      {scanTarget && <ScannerModal target={scanTarget} onClose={() => setScanTarget(null)} onSuccess={onScanSuccess} addToast={addToast} />}
+{scanTarget && <ScannerModal target={scanTarget} onClose={() => setScanTarget(null)} onSuccess={onScanSuccess} addToast={addToast} />}
     </div>
   );
 }
