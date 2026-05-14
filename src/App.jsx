@@ -551,6 +551,86 @@ export default function App() {
     printWindow.document.open(); printWindow.document.write(fullHtml); printWindow.document.close();
   };
 
+  const handleCetakPresensiPeserta = () => {
+    if (peserta.length === 0) { addToast("Belum ada data peserta untuk dicetak.", "error"); return; }
+    addToast('Membuka pratinjau dokumen PDF...', 'info');
+    
+    const printWindow = window.open('', '_blank');
+    const now = new Date();
+    const printDate = now.toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    const printTime = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    
+    const totalHadir = peserta.filter(p => p.statusHadir === 'Hadir').length;
+
+    const tableRows = peserta.map((p, index) => {
+      const isHadir = p.statusHadir === 'Hadir';
+      return `<tr>
+        <td style="text-align: center;">${index + 1}</td>
+        <td>${p.nama}</td>
+        <td>${p.kecamatan}</td>
+        <td style="font-family: monospace; font-size: 12px; color: #64748b;">${p.barcode}</td>
+        <td style="text-align: center; font-weight: bold; color: ${isHadir ? '#10b981' : '#ef4444'}">${p.statusHadir}</td>
+        <td style="text-align: center; font-weight: bold;">${isHadir ? p.waktuHadir : '-'}</td>
+      </tr>`;
+    }).join('');
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Laporan Kehadiran Peserta</title>
+        <style>
+          body { font-family: sans-serif; padding: 40px; color: #333; max-width: 1000px; margin: auto; }
+          .no-print { text-align: right; margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px dashed #cbd5e1; }
+          .btn-print { background: #2563eb; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-weight: bold; font-size: 14px; }
+          .header { text-align: center; border-bottom: 2px solid #2563eb; padding-bottom: 20px; margin-bottom: 30px; }
+          .header h1 { margin: 0; color: #1e40af; font-size: 24px; text-transform: uppercase; }
+          table { width: 100%; border-collapse: collapse; margin-bottom: 30px; font-size: 14px; }
+          th, td { border: 1px solid #cbd5e1; padding: 12px; text-align: left; }
+          th { background-color: #f1f5f9; font-weight: bold; font-size: 12px; text-align: center;}
+          .summary { margin-bottom: 20px; padding: 15px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; font-weight: bold; font-size: 16px; display: flex; justify-content: space-between; }
+          .footer { margin-top: 50px; text-align: right; font-size: 14px; }
+          .signature-space { height: 80px; }
+          .meta-info { margin-top: 40px; font-size: 12px; color: #64748b; font-style: italic; }
+          @media print { body { padding: 0; max-width: none; } .no-print { display: none; } }
+        </style>
+      </head>
+      <body>
+        <div class="no-print"><button class="btn-print" onclick="window.print()">🖨️ Cetak / Simpan PDF</button></div>
+        <div class="header">
+          <h1>Laporan Presensi Kehadiran Peserta</h1>
+          <p>Diklatsar Satkoryon / Data Scan Barcode Pintu Masuk</p>
+        </div>
+        <div class="summary">
+          <span>Total Terdaftar: ${peserta.length}</span>
+          <span style="color: #10b981;">Total Hadir: ${totalHadir}</span>
+          <span style="color: #ef4444;">Belum Hadir: ${peserta.length - totalHadir}</span>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th width="5%">No</th>
+              <th width="25%">Nama Lengkap</th>
+              <th width="20%">Utusan (Kecamatan)</th>
+              <th width="20%">ID Barcode</th>
+              <th width="15%">Status Kehadiran</th>
+              <th width="15%">Waktu Scan (WIB)</th>
+            </tr>
+          </thead>
+          <tbody>${tableRows}</tbody>
+        </table>
+        <div class="footer">
+          <p>Dicetak pada: ${printDate}</p>
+          <div class="signature-space"></div>
+          <p><strong>Panitia Pelaksana (Admin)</strong></p>
+        </div>
+        <div class="meta-info">* Dicetak jam ${printTime} WIB secara otomatis oleh Sistem Aplikasi Kaderisasi.</div>
+      </body>
+      </html>
+    `;
+    printWindow.document.open(); printWindow.document.write(htmlContent); printWindow.document.close();
+  };
+
   const onPesertaScanSuccess = async (decodedText) => {
     if (!isScanPesertaOpen) return;
     const targetPeserta = peserta.find(p => p.barcode === decodedText);
@@ -805,17 +885,27 @@ export default function App() {
              {currentUser?.role === 'superadmin' ? 'Kelola data peserta, cetak barcode, dan scan kehadiran.' : 'Arahkan HP Anda ke Name Tag (Barcode) Peserta di pintu masuk.'}
           </p>
         </div>
-        {currentUser?.role === 'superadmin' && (
-          <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-            <label className="bg-blue-100 text-blue-700 px-4 py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-blue-200 font-bold cursor-pointer transition">
-              <UploadCloud size={18} /> Upload Excel (CSV)
-              <input type="file" accept=".csv" onChange={handleUploadCSV} className="hidden" />
-            </label>
-            <button onClick={handleCetakBarcodePeserta} className="bg-emerald-600 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-emerald-700 font-bold shadow-md transition">
-              <Printer size={18} /> Cetak ID Card (Barcode)
-            </button>
-          </div>
-        )}
+        
+        {/* Pembungkus Tombol untuk Admin dan Superadmin */}
+        <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+          {/* Tombol Cetak Laporan (PDF) tampil untuk KEDUANYA (Admin Panitia & Super Admin) */}
+          <button onClick={handleCetakPresensiPeserta} className="bg-amber-100 text-amber-700 px-4 py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-amber-200 font-bold shadow-sm transition">
+            <Printer size={18} /> Laporan Absen (PDF)
+          </button>
+
+          {/* Tombol Upload & Cetak Kartu HANYA untuk Superadmin */}
+          {currentUser?.role === 'superadmin' && (
+            <>
+              <label className="bg-blue-100 text-blue-700 px-4 py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-blue-200 font-bold cursor-pointer transition">
+                <UploadCloud size={18} /> Upload Excel (CSV)
+                <input type="file" accept=".csv" onChange={handleUploadCSV} className="hidden" />
+              </label>
+              <button onClick={handleCetakBarcodePeserta} className="bg-emerald-600 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-emerald-700 font-bold shadow-md transition">
+                <Printer size={18} /> Cetak ID Card (Barcode)
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
@@ -1393,10 +1483,10 @@ export default function App() {
             {loginError && <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm mb-4 text-center font-medium border border-red-100">{loginError}</div>}
             <form onSubmit={handleLogin} className="space-y-5">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Username / Nama (Admin/Panitia/Pelatih)</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Username / Nama Pelatih</label>
                 <div className="relative">
                   <User className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                  <input required type="text" value={username} onChange={(e) => setUsername(e.target.value)} className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-emerald-500" placeholder="Cth: superadmin / admin / Dr. Andi" />
+                  <input required type="text" value={username} onChange={(e) => setUsername(e.target.value)} className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-emerald-500" placeholder="Contoh: admin / Dr. Andi Pratama" />
                 </div>
               </div>
               <div>
@@ -1445,15 +1535,15 @@ export default function App() {
           <div className="flex items-center gap-4">
             <div className="flex flex-col items-end hidden sm:flex">
               <span className="text-sm font-bold text-slate-800">{currentUser.name}</span>
-              <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full uppercase mt-0.5">
-                {currentUser.role === 'superadmin' ? 'Super Admin' : currentUser.role === 'admin' ? 'Panitia / Scanner' : 'Pemateri / Pelatih'}
-              </span>
+              <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full uppercase mt-0.5">{currentUser.role === 'admin' ? 'Admin Kabupaten' : 'Pemateri / Pelatih'}</span>
             </div>
             <div className="w-10 h-10 rounded-full bg-emerald-600 flex items-center justify-center text-white font-bold text-sm">{currentUser.name.substring(0, 2).toUpperCase()}</div>
             
-            <button onClick={() => setIsChangePassModalOpen(true)} className="ml-2 p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition" title="Ganti Password">
-              <Key size={20} />
-            </button>
+            {currentUser.role === 'pelatih' && (
+              <button onClick={() => setIsChangePassModalOpen(true)} className="ml-2 p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition" title="Ganti Password">
+                <Key size={20} />
+              </button>
+            )}
             <button onClick={handleLogout} className="ml-2 p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition" title="Logout"><LogOut size={20} /></button>
           </div>
         </header>
@@ -1461,8 +1551,6 @@ export default function App() {
         <main className="flex-1 overflow-y-auto p-4 lg:p-8">
           <div className="max-w-6xl mx-auto">
             {activeTab === 'dashboard' && DashboardView()}
-            {activeTab === 'peserta' && PesertaView()}
-            {activeTab === 'izin' && IzinView()}
             {activeTab === 'pelatih' && PelatihView()}
             {activeTab === 'jadwal' && JadwalView()}
             {activeTab === 'jadwal_saya' && JadwalSayaView({jenis: 'Materi'})}
@@ -1491,49 +1579,6 @@ export default function App() {
               <div><label className="block text-sm font-medium text-slate-700 mb-1">Konfirmasi Password Baru</label><input required type="password" value={changePassData.confirmPass} onChange={e => setChangePassData({...changePassData, confirmPass: e.target.value})} className="w-full border border-slate-200 rounded-lg p-3 text-sm focus:border-emerald-500" minLength="6" /></div>
               <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-100"><button type="button" onClick={() => { setIsChangePassModalOpen(false); setChangePassError(''); }} className="px-4 py-2 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg">Batal</button><button type="submit" className="px-4 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg">Simpan Password</button></div>
             </form>
-          </div>
-        </div>
-      )}
-
-      {/* --- MODAL TAMBAH IZIN PESERTA --- */}
-      {isAddIzinModalOpen && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-lg w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="flex justify-between items-center p-4 border-b border-slate-100 bg-slate-50">
-              <h3 className="font-bold text-lg text-slate-800">Catat Izin Keluar Peserta</h3>
-              <button onClick={() => setIsAddIzinModalOpen(false)} className="text-slate-400 hover:text-slate-600"><X size={20}/></button>
-            </div>
-            <div className="overflow-y-auto p-5">
-              <form onSubmit={submitAddIzin} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Pilih Nama Peserta</label>
-                  <select required value={newIzin.namaPeserta} onChange={e => setNewIzin({...newIzin, namaPeserta: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-emerald-500 bg-slate-50 font-medium">
-                    <option value="">-- Ketik / Pilih Peserta --</option>
-                    {peserta.map(p => (<option key={p.docId} value={p.nama}>{p.nama} ({p.kecamatan})</option>))}
-                  </select>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div><label className="block text-sm font-medium text-slate-700 mb-1">Dari Jam</label><input required type="time" value={newIzin.jamMulai} onChange={e => setNewIzin({...newIzin, jamMulai: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-emerald-500" /></div>
-                  <div><label className="block text-sm font-medium text-slate-700 mb-1">Sampai Jam</label><input required type="time" value={newIzin.jamSelesai} onChange={e => setNewIzin({...newIzin, jamSelesai: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-emerald-500" /></div>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Materi / Sesi yang Ditinggalkan</label>
-                  <select required value={newIzin.materi} onChange={e => setNewIzin({...newIzin, materi: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-emerald-500 bg-slate-50">
-                    <option value="">-- Pilih Materi / Jadwal --</option>
-                    {jadwal.map(j => (<option key={j.docId} value={j.materi}>{j.materi} ({j.waktuMulai} - {j.waktuSelesai})</option>))}
-                    <option value="Lainnya">Lainnya / Tidak ada materi</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Alasan Izin</label>
-                  <textarea required rows="2" value={newIzin.alasan} onChange={e => setNewIzin({...newIzin, alasan: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-emerald-500 resize-none" placeholder="Cth: Menghadiri acara keluarga mendadak..." />
-                </div>
-                <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-100">
-                  <button type="button" onClick={() => setIsAddIzinModalOpen(false)} className="px-4 py-2 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg">Batal</button>
-                  <button type="submit" className="px-4 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg">Simpan Izin</button>
-                </div>
-              </form>
-            </div>
           </div>
         </div>
       )}
@@ -1597,14 +1642,20 @@ export default function App() {
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-lg w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
             <div className="flex justify-between items-center p-4 border-b border-slate-100 bg-slate-50">
-              <h3 className="font-bold text-lg text-slate-800">{newJadwal.jenis === 'Piket' ? 'Buat Tugas Piket Baru' : 'Buat Jadwal Materi Baru'}</h3>
+              <h3 className="font-bold text-lg text-slate-800">Buat Jadwal Baru</h3>
               <button onClick={() => setIsAddJadwalModalOpen(false)} className="text-slate-400 hover:text-slate-600"><X size={20}/></button>
             </div>
             <div className="overflow-y-auto p-4">
               <form onSubmit={submitAddJadwal} className="space-y-4">
                 
-                {/* Field yang disembunyikan untuk mempermudah logika */}
-                <input type="hidden" value={newJadwal.jenis} />
+                {/* --- TAMBAHAN JENIS PENUGASAN --- */}
+                <div className="col-span-2">
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Jenis Penugasan</label>
+                  <select required value={newJadwal.jenis || 'Materi'} onChange={e => setNewJadwal({...newJadwal, jenis: e.target.value, materi: e.target.value === 'Piket' ? 'Tugas Piket Diklatsar' : ''})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-emerald-500 font-medium bg-slate-50">
+                    <option value="Materi">Pemateri / Instruktur (Sesuai Materi)</option>
+                    <option value="Piket">Tugas Piket Diklatsar (Non-Materi)</option>
+                  </select>
+                </div>
 
                 {/* Sembunyikan Input Materi jika yang dipilih adalah PIKET */}
                 {(!newJadwal.jenis || newJadwal.jenis === 'Materi') && (
@@ -1650,7 +1701,7 @@ export default function App() {
                   <div><label className="block text-sm font-medium text-slate-700 mb-1">Jam Mulai</label><input required type="time" value={newJadwal.waktuMulai} onChange={e => setNewJadwal({...newJadwal, waktuMulai: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-emerald-500" /></div>
                   <div><label className="block text-sm font-medium text-slate-700 mb-1">Jam Selesai</label><input required type="time" value={newJadwal.waktuSelesai} onChange={e => setNewJadwal({...newJadwal, waktuSelesai: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-emerald-500" /></div>
                 </div>
-                <div className="flex items-center gap-2 mt-4 p-3 bg-emerald-50 rounded-lg border border-emerald-100"><input type="checkbox" id="autoSend" checked={autoSendWA} onChange={(e) => setAutoSendWA(e.target.checked)} className="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500 cursor-pointer" /><label htmlFor="autoSend" className="text-sm text-emerald-800 cursor-pointer font-medium">Otomatis kirim info penugasan via WA (API) ke pelatih</label></div>
+                <div className="flex items-center gap-2 mt-4 p-3 bg-emerald-50 rounded-lg border border-emerald-100"><input type="checkbox" id="autoSend" checked={autoSendWA} onChange={(e) => setAutoSendWA(e.target.checked)} className="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500 cursor-pointer" /><label htmlFor="autoSend" className="text-sm text-emerald-800 cursor-pointer font-medium">Otomatis kirim info jadwal via WA (API) ke pemateri</label></div>
                 <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-100"><button type="button" onClick={() => setIsAddJadwalModalOpen(false)} className="px-4 py-2 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg">Batal</button><button type="submit" className="px-4 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg">Simpan ke Cloud</button></div>
               </form>
             </div>
