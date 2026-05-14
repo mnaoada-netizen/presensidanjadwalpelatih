@@ -11,7 +11,7 @@ import {
 // --- FIREBASE IMPORTS ---
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, collection, onSnapshot, doc, updateDoc, addDoc, getDocs, deleteDoc } from 'firebase/firestore';
+import { getFirestore, collection, onSnapshot, doc, updateDoc, addDoc, getDocs, deleteDoc, setDoc } from 'firebase/firestore';
 
 // --- FIREBASE SETUP ---
 const myFirebaseConfig = {
@@ -82,6 +82,7 @@ export default function App() {
   const [pelatih, setPelatih] = useState([]);
   const [jadwal, setJadwal] = useState([]);
   const [waLogs, setWaLogs] = useState([]);
+  const [lokasiData, setLokasiData] = useState([]); // TAMBAHAN: State Lokasi
 
   // States untuk Modal Form Admin
   const [isAddPelatihModalOpen, setIsAddPelatihModalOpen] = useState(false);
@@ -94,11 +95,15 @@ export default function App() {
   const [editPelatihData, setEditPelatihData] = useState(null);
 
   const [isAddJadwalModalOpen, setIsAddJadwalModalOpen] = useState(false);
-  const [newJadwal, setNewJadwal] = useState({ jenis: 'Materi', materi: '', pelatih: '', waPelatih: '', tanggal: '', waktuMulai: '', waktuSelesai: '', tempat: '', koordinat: '', kuota: '', kecamatan: 'Buaran', waktuDatang: '-', waktuPulang: '-' });
+  const [newJadwal, setNewJadwal] = useState({ jenis: 'Materi', materi: '', pelatih: '', waPelatih: '', tanggal: '', waktuMulai: '', waktuSelesai: '', kuota: '', kecamatan: 'Buaran', waktuDatang: '-', waktuPulang: '-' });
   const [autoSendWA, setAutoSendWA] = useState(true);
 
   const [isEditJadwalModalOpen, setIsEditJadwalModalOpen] = useState(false);
   const [editJadwalData, setEditJadwalData] = useState(null);
+
+  // TAMBAHAN: State untuk Modal Lokasi
+  const [isEditLokasiModalOpen, setIsEditLokasiModalOpen] = useState(false);
+  const [editLokasiData, setEditLokasiData] = useState(null);
 
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
   const [isBlastModalOpen, setIsBlastModalOpen] = useState(false);
@@ -155,6 +160,7 @@ export default function App() {
     let unsubPelatih = () => {};
     let unsubJadwal = () => {};
     let unsubLogs = () => {};
+    let unsubLokasi = () => {};
 
     const handlePermissionError = (err, module) => {
       setIsDbLoading(false);
@@ -167,6 +173,7 @@ export default function App() {
       const pelatihRef = collection(db, 'artifacts', appId, 'public', 'data', 'kader_pelatih');
       const jadwalRef = collection(db, 'artifacts', appId, 'public', 'data', 'kader_jadwal');
       const logsRef = collection(db, 'artifacts', appId, 'public', 'data', 'kader_logs');
+      const lokasiRef = collection(db, 'artifacts', appId, 'public', 'data', 'kader_lokasi');
 
       const checkAndSeedData = async () => {
         try {
@@ -177,6 +184,15 @@ export default function App() {
             ];
             initialPelatih.forEach(p => addDoc(pelatihRef, p));
           }
+
+          // Seeding Data Lokasi Otomatis
+          const lSnap = await getDocs(lokasiRef);
+          if (lSnap.empty) {
+            daftarKecamatan.forEach(kec => {
+               setDoc(doc(lokasiRef, kec), { kecamatan: kec, tempat: 'Belum diatur', koordinat: '' });
+            });
+          }
+
         } catch(err) { handlePermissionError(err, 'Seeding'); }
       };
       
@@ -216,6 +232,17 @@ export default function App() {
         (err) => handlePermissionError(err, 'Logs')
       );
 
+      unsubLokasi = onSnapshot(
+        lokasiRef,
+        (snapshot) => {
+          if (!isMounted) return;
+          const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          data.sort((a, b) => a.kecamatan.localeCompare(b.kecamatan));
+          setLokasiData(data);
+        },
+        (err) => handlePermissionError(err, 'Lokasi')
+      );
+
     } catch (err) {
       handlePermissionError(err, 'Init Collection');
     }
@@ -225,6 +252,7 @@ export default function App() {
       unsubPelatih();
       unsubJadwal();
       unsubLogs();
+      unsubLokasi();
     };
   }, [firebaseUser]);
 
@@ -239,7 +267,7 @@ export default function App() {
 
   const openGoogleMaps = (koordinat) => {
     if (!koordinat || koordinat.trim() === '') {
-      addToast('Titik koordinat lokasi belum diatur.', 'error');
+      addToast('Titik koordinat lokasi belum diatur oleh Admin.', 'error');
       return;
     }
     const url = `https://www.google.com/maps/search/?api=1&query=${koordinat}`;
@@ -374,6 +402,22 @@ export default function App() {
     }
   };
 
+  // --- CRUD LOKASI GPS (BARU) ---
+  const submitEditLokasi = async (e) => {
+    e.preventDefault();
+    if (!firebaseUser) return;
+    addToast('Menyimpan titik lokasi...', 'info');
+    try {
+      await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'kader_lokasi', editLokasiData.id), {
+         tempat: editLokasiData.tempat,
+         koordinat: editLokasiData.koordinat
+      });
+      setIsEditLokasiModalOpen(false);
+      setEditLokasiData(null);
+      addToast('Data lokasi Satkoryon berhasil diperbarui!', 'success');
+    } catch(err) { addToast('Gagal menyimpan lokasi', 'error'); }
+  };
+
   // --- CRUD CLOUD FIRESTORE JADWAL ---
   const submitAddJadwal = async (e) => {
     e.preventDefault();
@@ -395,7 +439,7 @@ export default function App() {
     try {
       await addDoc(jadwalRef, addedJadwal);
       setIsAddJadwalModalOpen(false);
-      setNewJadwal({ jenis: 'Materi', materi: '', pelatih: '', waPelatih: '', tanggal: '', waktuMulai: '', waktuSelesai: '', tempat: '', koordinat: '', kuota: '', kecamatan: 'Buaran', waktuDatang: '-', waktuPulang: '-' });
+      setNewJadwal({ jenis: 'Materi', materi: '', pelatih: '', waPelatih: '', tanggal: '', waktuMulai: '', waktuSelesai: '', kuota: '', kecamatan: 'Buaran', waktuDatang: '-', waktuPulang: '-' });
       addToast('Jadwal baru berhasil disimpan di Cloud!', 'success');
       if (autoSendWA && addedJadwal.waPelatih) { setTimeout(() => sendWhatsAppMock(addedJadwal.pelatih, 'Jadwal Pemateri Baru'), 1000); }
     } catch (error) {
@@ -403,7 +447,7 @@ export default function App() {
     }
   };
 
-  const openEditJadwal = (j) => { setEditJadwalData({ ...j, jenis: j.jenis || 'Materi', koordinat: j.koordinat || '' }); setIsEditJadwalModalOpen(true); };
+  const openEditJadwal = (j) => { setEditJadwalData({ ...j, jenis: j.jenis || 'Materi' }); setIsEditJadwalModalOpen(true); };
 
   const submitEditJadwal = async (e) => {
     e.preventDefault();
@@ -415,7 +459,7 @@ export default function App() {
         jenis: editJadwalData.jenis || 'Materi',
         materi: editJadwalData.jenis === 'Piket' ? 'Tugas Piket Diklatsar' : editJadwalData.materi,
         pelatih: editJadwalData.pelatih, waPelatih: editJadwalData.waPelatih,
-        kecamatan: editJadwalData.kecamatan, tempat: editJadwalData.tempat, koordinat: editJadwalData.koordinat,
+        kecamatan: editJadwalData.kecamatan,
         tanggal: editJadwalData.tanggal, 
         kuota: editJadwalData.jenis === 'Piket' ? 0 : editJadwalData.kuota, 
         waktuMulai: editJadwalData.waktuMulai, waktuSelesai: editJadwalData.waktuSelesai,
@@ -472,32 +516,10 @@ export default function App() {
     try { await addDoc(logsRef, { target: target, type: type, status: status, waktu: timestamp24h, timestamp: Date.now() }); } catch (error) {}
   };
 
-  // --- PERBAIKAN FUNGSI WHATSAPP AGAR BISA TERBUKA OTOMATIS ---
   const openWhatsAppWeb = (phone, text, targetName, type) => {
-    if (!phone || phone.trim() === '-' || phone.trim() === '') {
-      addToast('Nomor WhatsApp kosong atau tidak valid.', 'error');
-      return;
-    }
-
-    let cleanPhone = phone.replace(/\D/g, ''); // Hapus semua karakter selain angka
-    
-    // Konversi awalan 0 menjadi 62 agar format internasional valid untuk wa.me
-    if (cleanPhone.startsWith('0')) {
-      cleanPhone = '62' + cleanPhone.substring(1);
-    }
-
+    const cleanPhone = phone.replace(/\D/g, '');
     const encodedText = encodeURIComponent(text);
-    const waUrl = `https://wa.me/${cleanPhone}?text=${encodedText}`;
-
-    // Menggunakan trik anchor tag agar tidak mudah diblokir oleh browser pop-up blocker
-    const link = document.createElement('a');
-    link.href = waUrl;
-    link.target = '_blank';
-    link.rel = 'noopener noreferrer';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-
+    window.open(`https://wa.me/${cleanPhone}?text=${encodedText}`, '_blank', 'noopener,noreferrer');
     addToast(`Membuka WhatsApp untuk ${targetName}...`, 'success');
     addLogToCloud(targetName, type, 'Dialihkan ke WA App');
   };
@@ -541,6 +563,7 @@ export default function App() {
     const namaKecamatan = jadwal.length > 0 ? jadwal[0].kecamatan : 'Semua Kecamatan';
 
     const tableRows = jadwal.map((j, index) => {
+      const sjLokasi = lokasiData.find(l => l.kecamatan === j.kecamatan);
       const hari = new Date(j.tanggal).toLocaleDateString('id-ID', { weekday: 'long' });
       const tanggalFormat = new Date(j.tanggal).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
       const materiDisplay = j.jenis === 'Piket' ? '<strong>🛡️ TUGAS PIKET</strong>' : j.materi;
@@ -554,14 +577,14 @@ export default function App() {
   // --- LOGIKA PELACAKAN LOKASI OTOMATIS (GPS) ---
   const checkLocation = (koordinat) => {
     if (!koordinat || koordinat.trim() === '') {
-      setLocationError('Admin belum mengatur titik koordinat (Silakan hubungi Admin).');
+      setLocationError('Admin belum mengatur titik koordinat di Master Lokasi.');
       setUserDistance(null);
       return;
     }
 
     const coords = koordinat.split(',').map(c => parseFloat(c.trim()));
     if (coords.length !== 2 || isNaN(coords[0]) || isNaN(coords[1])) {
-      setLocationError('Format koordinat tidak valid.');
+      setLocationError('Format koordinat tidak valid. Hubungi admin.');
       setUserDistance(null);
       return;
     }
@@ -598,12 +621,15 @@ export default function App() {
   useEffect(() => {
     if (selectedJadwalPresensi) {
       const sj = jadwal.find(j => j.docId === selectedJadwalPresensi);
-      if (sj) checkLocation(sj.koordinat);
+      if (sj) {
+        const sjLokasi = lokasiData.find(l => l.kecamatan === sj.kecamatan);
+        checkLocation(sjLokasi?.koordinat);
+      }
     } else {
       setUserDistance(null);
       setLocationError('');
     }
-  }, [selectedJadwalPresensi, jadwal]);
+  }, [selectedJadwalPresensi, jadwal, lokasiData]);
 
   // --- KOMPONEN PANEL PRESENSI (REUSABLE) ---
   const renderPanelPresensi = (myJadwal) => (
@@ -641,6 +667,7 @@ export default function App() {
           {selectedJadwalPresensi && (() => {
             const sj = myJadwal.find(j => j.docId === selectedJadwalPresensi);
             if (!sj) return null;
+            const sjLokasi = lokasiData.find(l => l.kecamatan === sj.kecamatan);
             
             return (
               <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm mt-4 animate-in fade-in slide-in-from-top-2 duration-300">
@@ -649,6 +676,7 @@ export default function App() {
                     <h4 className="text-sm font-bold text-slate-800 flex items-center gap-2">
                       Informasi Jarak Anda Saat Ini
                     </h4>
+                    <p className="text-xs text-slate-500 mt-1 mb-2">Lokasi: {sjLokasi?.tempat || 'Belum diatur'}</p>
                     {isLocating ? (
                       <p className="text-xs text-blue-500 flex items-center gap-1.5 mt-2 font-bold bg-blue-50 w-max px-3 py-1.5 rounded-full">
                         <Loader2 className="animate-spin" size={14}/> Mendeteksi sinyal GPS...
@@ -660,11 +688,11 @@ export default function App() {
                     ) : userDistance !== null ? (
                       <p className={`text-xl mt-3 font-black flex items-center gap-2 w-max px-5 py-3 rounded-xl border-2 shadow-sm ${userDistance <= 200 ? 'text-emerald-700 border-emerald-300 bg-emerald-50' : 'text-red-700 border-red-300 bg-red-50'}`}>
                         {userDistance <= 200 ? <CheckCircle size={24}/> : <X size={24}/>}
-                        📍 {userDistance} meter {userDistance > 200 && '(Di luar batas lokasi)'}
+                        📍 Jarak: {userDistance} m {userDistance > 200 && <span className="text-sm font-bold opacity-80">(Di luar batas lokasi)</span>}
                       </p>
                     ) : null}
                   </div>
-                  <button onClick={() => checkLocation(sj.koordinat)} className="p-2.5 bg-slate-100 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition shrink-0 border border-slate-200 shadow-sm" title="Refresh Lokasi GPS">
+                  <button onClick={() => checkLocation(sjLokasi?.koordinat)} className="p-2.5 bg-slate-100 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition shrink-0 border border-slate-200 shadow-sm" title="Refresh Lokasi GPS">
                     <RefreshCcw size={18} className={isLocating ? 'animate-spin' : ''} />
                   </button>
                 </div>
@@ -703,7 +731,7 @@ export default function App() {
   // --- KOMPONEN TAMPILAN ---
   const Sidebar = () => {
     const menus = currentUser?.role === 'admin' 
-      ? [ { id: 'dashboard', icon: <Calendar size={20}/>, label: 'Dashboard' }, { id: 'pelatih', icon: <Briefcase size={20}/>, label: 'Data Pelatih' }, { id: 'jadwal', icon: <Clock size={20}/>, label: 'Jadwal & Presensi' }, { id: 'whatsapp', icon: <MessageSquare size={20}/>, label: 'Log WhatsApp' } ]
+      ? [ { id: 'dashboard', icon: <Calendar size={20}/>, label: 'Dashboard' }, { id: 'pelatih', icon: <Briefcase size={20}/>, label: 'Data Pelatih' }, { id: 'jadwal', icon: <Clock size={20}/>, label: 'Jadwal & Presensi' }, { id: 'lokasi', icon: <MapPin size={20}/>, label: 'Master Titik Lokasi' }, { id: 'whatsapp', icon: <MessageSquare size={20}/>, label: 'Log WhatsApp' } ]
       : [ { id: 'dashboard', icon: <Calendar size={20}/>, label: 'Dashboard Pelatih' }, { id: 'jadwal_saya', icon: <Clock size={20}/>, label: 'Semua Jadwal Saya' } ];
 
     return (
@@ -803,7 +831,9 @@ export default function App() {
           <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-8 text-center text-slate-500">Belum ada jadwal pelatihan yang ditugaskan kepada Anda.</div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {myJadwal.slice(0, 4).map((j) => (
+            {myJadwal.slice(0, 4).map((j) => {
+              const sjLokasi = lokasiData.find(l => l.kecamatan === j.kecamatan);
+              return (
               <div key={j.docId} className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden flex flex-col">
                 <div className="bg-indigo-50 border-b border-indigo-100 p-5 flex flex-col justify-center relative">
                   <span className="absolute top-4 right-4 bg-indigo-100 text-indigo-700 text-xs px-2 py-1 rounded font-bold">{j.displayId}</span>
@@ -816,7 +846,7 @@ export default function App() {
                   <div className="space-y-2 mb-6">
                     <p className="text-sm font-medium text-slate-700 flex items-center gap-2"><Calendar size={16} className="text-slate-400"/> {j.tanggal}</p>
                     <p className="text-sm font-medium text-slate-700 flex items-center gap-2"><Clock size={16} className="text-slate-400"/> {j.waktuMulai} - {j.waktuSelesai} WIB</p>
-                    <p className="text-sm font-medium text-slate-700 flex items-start gap-2"><MapPin size={16} className="text-slate-400 mt-0.5"/> <span>{j.tempat}</span></p>
+                    <p className="text-sm font-medium text-slate-700 flex items-start gap-2"><MapPin size={16} className="text-slate-400 mt-0.5"/> <span>{sjLokasi?.tempat || '-'}</span></p>
                   </div>
                   
                   <div className="border-t border-slate-100 pt-4 space-y-3">
@@ -824,15 +854,15 @@ export default function App() {
                       <span className={j.waktuDatang !== '-' ? 'text-emerald-600' : 'text-slate-500'}>Datang: {j.waktuDatang}</span>
                       <span className={j.waktuPulang !== '-' ? 'text-emerald-600' : 'text-slate-500'}>Pulang: {j.waktuPulang}</span>
                     </div>
-                    {j.koordinat && (
-                      <button onClick={() => openGoogleMaps(j.koordinat)} className="w-full mt-2 py-2 flex items-center justify-center gap-2 bg-indigo-100 text-indigo-700 text-sm font-medium rounded-lg hover:bg-indigo-200 transition">
+                    {sjLokasi && sjLokasi.koordinat && (
+                      <button onClick={() => openGoogleMaps(sjLokasi.koordinat)} className="w-full mt-2 py-2 flex items-center justify-center gap-2 bg-indigo-100 text-indigo-700 text-sm font-medium rounded-lg hover:bg-indigo-200 transition">
                         <Map size={16} /> Buka di Google Maps
                       </button>
                     )}
                   </div>
                 </div>
               </div>
-            ))}
+            )})}
           </div>
         )}
 
@@ -841,47 +871,34 @@ export default function App() {
     );
   };
 
-  const PelatihView = () => (
+  const LokasiView = () => (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <h2 className="text-2xl font-bold text-slate-800">Data Seluruh Pelatih</h2>
-        <button onClick={() => setIsAddPelatihModalOpen(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-700 shadow-sm">
-          <UserPlus size={18} /> Tambah Pelatih Manual
-        </button>
+        <h2 className="text-2xl font-bold text-slate-800">Master Data Titik Lokasi</h2>
       </div>
-
+      <div className="bg-blue-50 text-blue-800 p-4 rounded-xl text-sm border border-blue-100">
+        Atur <b>Titik Koordinat (GPS)</b> dan <b>Nama Tempat</b> untuk setiap Satkoryon di sini. <b>Cukup atur 1 kali saja</b>, dan semua jadwal di kecamatan tersebut akan otomatis menggunakan lokasi ini.
+      </div>
       <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse min-w-[800px]">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-100 text-slate-500 text-sm whitespace-nowrap">
-                <th className="p-4 font-semibold">ID</th>
-                <th className="p-4 font-semibold">Nama Pelatih</th>
-                <th className="p-4 font-semibold">Alamat</th>
-                <th className="p-4 font-semibold">Bidang Keahlian</th>
-                <th className="p-4 font-semibold">No. WhatsApp</th>
-                <th className="p-4 font-semibold">Status</th>
+                <th className="p-4 font-semibold">Satkoryon (Kecamatan)</th>
+                <th className="p-4 font-semibold">Nama Tempat Kegiatan</th>
+                <th className="p-4 font-semibold">Titik Koordinat (Google Maps)</th>
                 <th className="p-4 font-semibold text-center">Aksi</th>
               </tr>
             </thead>
             <tbody>
-              {pelatih.map((p) => (
-                <tr key={p.docId} className="border-b border-slate-50 hover:bg-slate-50">
-                  <td className="p-4 text-sm font-medium text-slate-700">{p.displayId}</td>
-                  <td className="p-4 text-sm font-semibold text-slate-800">{p.nama}</td>
-                  <td className="p-4 text-sm text-slate-600 max-w-[150px] truncate" title={p.alamat}>{p.alamat || '-'}</td>
-                  <td className="p-4 text-sm text-slate-600">{p.bidang}</td>
-                  <td className="p-4 text-sm text-slate-600">{p.wa}</td>
-                  <td className="p-4"><span className={`px-2.5 py-1 rounded-full text-xs font-medium border ${p.status === 'Aktif' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>{p.status}</span></td>
-                  <td className="p-4 flex justify-center gap-2">
-                    <button onClick={() => handleResetPassword(p)} className="p-1.5 text-amber-600 hover:text-amber-800 hover:bg-amber-100 rounded-md" title="Reset Password ke 123">
-                      <RefreshCcw size={18} />
-                    </button>
-                    <button onClick={() => openEditPelatih(p)} className="p-1.5 text-blue-600 hover:text-blue-800 hover:bg-blue-100 rounded-md" title="Edit Data Pelatih">
-                      <Pencil size={18} />
-                    </button>
-                    <button onClick={() => openWhatsAppWeb(p.wa, `Halo ${p.nama},\n\nMohon kesediaannya untuk jadwal pelatihan mendatang.`, p.nama, 'Pesan Personal')} className="p-1.5 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-100 rounded-md" title="Kirim Pesan WA Langsung">
-                      <Send size={18} />
+              {lokasiData.map((loc) => (
+                <tr key={loc.id} className="border-b border-slate-50 hover:bg-slate-50 transition-colors group">
+                  <td className="p-4 text-sm font-bold text-blue-700">{loc.kecamatan}</td>
+                  <td className="p-4 text-sm font-semibold text-slate-800">{loc.tempat}</td>
+                  <td className="p-4 text-sm text-slate-600 font-mono">{loc.koordinat || <span className="text-red-400 italic font-sans text-xs">Belum diatur</span>}</td>
+                  <td className="p-4 flex justify-center">
+                    <button onClick={() => { setEditLokasiData(loc); setIsEditLokasiModalOpen(true); }} className="px-3 py-1.5 flex items-center gap-1.5 bg-amber-50 text-amber-600 text-xs font-bold rounded-lg hover:bg-amber-500 hover:text-white transition shadow-sm">
+                      <Pencil size={14}/> Edit Titik
                     </button>
                   </td>
                 </tr>
@@ -892,53 +909,6 @@ export default function App() {
       </div>
     </div>
   );
-
-  const JadwalSayaView = () => {
-    const myJadwal = jadwal.filter(j => j.pelatih === currentUser.name);
-
-    return (
-      <div className="space-y-6">
-        <h2 className="text-2xl font-bold text-slate-800">Semua Jadwal Mengajar Saya</h2>
-        {myJadwal.length === 0 ? (
-          <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-8 text-center text-slate-500">Belum ada jadwal pelatihan yang ditugaskan kepada Anda.</div>
-        ) : (
-          <div className="grid grid-cols-1 gap-6">
-            {myJadwal.map((j) => (
-              <div key={j.docId} className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden flex flex-col md:flex-row">
-                <div className="bg-blue-50 border-b md:border-b-0 md:border-r border-blue-100 p-6 md:w-1/3 flex flex-col justify-center">
-                  <span className="inline-block bg-blue-100 text-blue-700 text-xs px-2 py-1 rounded font-bold w-max mb-2">{j.displayId}</span>
-                  <h3 className="text-xl font-bold text-slate-800 leading-tight mb-2">
-                    {j.jenis === 'Piket' ? '🛡️ Tugas Piket Diklatsar' : j.materi}
-                  </h3>
-                  <p className="text-sm text-blue-600 font-medium">Satkoryon {j.kecamatan}</p>
-                </div>
-                <div className="p-6 flex-1 flex flex-col justify-between">
-                  <div className="grid grid-cols-2 gap-4 mb-6">
-                    <div><p className="text-xs text-slate-500 font-medium mb-1">Tanggal & Sesi</p><p className="text-sm font-semibold text-slate-800 flex items-center gap-2"><Calendar size={16} className="text-slate-400"/> {j.tanggal}</p><p className="text-sm font-semibold text-slate-800 flex items-center gap-2 mt-1"><Clock size={16} className="text-slate-400"/> {j.waktuMulai} - {j.waktuSelesai} WIB</p></div>
-                    <div><p className="text-xs text-slate-500 font-medium mb-1">Lokasi</p><p className="text-sm font-semibold text-slate-800">{j.tempat}</p></div>
-                  </div>
-                  <div className="border-t border-slate-100 pt-4 flex flex-col sm:flex-row items-center gap-4 justify-between">
-                    <div className="flex items-center gap-4 text-sm font-medium bg-slate-50 p-3 rounded-lg w-full">
-                      <span className={j.waktuDatang !== '-' ? 'text-emerald-600' : 'text-slate-500'}>Datang: {j.waktuDatang}</span>
-                      <span className={j.waktuPulang !== '-' ? 'text-emerald-600' : 'text-slate-500'}>Pulang: {j.waktuPulang}</span>
-                    </div>
-                    {j.koordinat && (
-                      <button onClick={() => openGoogleMaps(j.koordinat)} className="mt-2 sm:mt-0 py-2 px-4 flex items-center justify-center gap-2 bg-indigo-100 text-indigo-700 text-sm font-medium rounded-lg hover:bg-indigo-200 transition whitespace-nowrap">
-                        <Map size={16} /> Buka Peta
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Panel Presensi Ditempatkan Tersendiri */}
-        {renderPanelPresensi(myJadwal)}
-      </div>
-    );
-  };
 
   const JadwalView = () => (
     <div className="space-y-6">
@@ -968,6 +938,7 @@ export default function App() {
             <tbody className="divide-y divide-slate-50">
               {jadwal.map((j) => {
                 const persentase = getPersentase(j.terdaftar, j.kuota);
+                const sjLokasi = lokasiData.find(l => l.kecamatan === j.kecamatan);
                 return (
                   <tr key={j.docId} className="hover:bg-slate-50 transition-colors group">
                     <td className="p-4">
@@ -998,7 +969,7 @@ export default function App() {
                     <td className="p-4 text-[11px] text-slate-600 space-y-1">
                       <div className="flex items-center gap-1.5"><Calendar size={12} className="text-slate-400"/> <b>{j.tanggal}</b></div>
                       <div className="flex items-center gap-1.5"><Clock size={12} className="text-slate-400"/> {j.waktuMulai} - {j.waktuSelesai} WIB</div>
-                      <div className="flex items-center gap-1.5 italic" title={j.koordinat ? `Titik: ${j.koordinat}` : 'Koordinat tidak diatur'}><MapPin size={12} className="text-slate-400"/> {j.tempat}</div>
+                      <div className="flex items-center gap-1.5 italic" title={sjLokasi?.koordinat ? `Titik: ${sjLokasi.koordinat}` : 'Koordinat belum diatur'}><MapPin size={12} className="text-slate-400"/> {sjLokasi?.tempat || '-'}</div>
                     </td>
                     <td className="p-4">
                       {j.jenis === 'Piket' ? (
@@ -1023,7 +994,7 @@ export default function App() {
                         <button onClick={() => sendWhatsAppMock(`Seluruh Peserta ${j.displayId}`, 'Blast Pengumuman')} className="p-2 text-emerald-600 bg-emerald-50 rounded-lg hover:bg-emerald-600 hover:text-white transition shadow-sm" title="Blast ke Peserta">
                           <MessageSquare size={16} />
                         </button>
-                        <button onClick={() => j.waPelatih ? openWhatsAppWeb(j.waPelatih, `Halo Admin Satkorcab disini,\n\nMengingatkan kembali untuk jadwal pengisian materi *${j.materi}* pada hari/tanggal ${j.tanggal} jam ${j.waktuMulai} WIB di ${j.tempat}.`, j.pelatih, 'Reminder') : addToast('WA kosong', 'error')} className="p-2 text-teal-600 bg-teal-50 rounded-lg hover:bg-teal-600 hover:text-white transition shadow-sm" title="WA Pelatih">
+                        <button onClick={() => j.waPelatih ? openWhatsAppWeb(j.waPelatih, `Halo Admin Satkorcab disini,\n\nMengingatkan kembali untuk jadwal pengisian materi *${j.materi}* pada hari/tanggal ${j.tanggal} jam ${j.waktuMulai} WIB di ${sjLokasi?.tempat || '-'}.`, j.pelatih, 'Reminder') : addToast('WA kosong', 'error')} className="p-2 text-teal-600 bg-teal-50 rounded-lg hover:bg-teal-600 hover:text-white transition shadow-sm" title="WA Pelatih">
                           <Send size={16} />
                         </button>
                         <button onClick={() => openEditJadwal(j)} className="p-2 text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-600 hover:text-white transition shadow-sm" title="Edit Jadwal">
@@ -1205,6 +1176,7 @@ export default function App() {
             {activeTab === 'dashboard' && <DashboardView />}
             {activeTab === 'pelatih' && <PelatihView />}
             {activeTab === 'jadwal' && <JadwalView />}
+            {activeTab === 'lokasi' && <LokasiView />}
             {activeTab === 'jadwal_saya' && <JadwalSayaView />}
             {activeTab === 'whatsapp' && <WhatsAppView />}
           </div>
@@ -1214,6 +1186,36 @@ export default function App() {
       <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2">
         {toasts.map(toast => (<div key={toast.id} className={`px-4 py-3 rounded-lg shadow-lg text-sm font-medium flex items-center gap-3 text-white transform transition-all duration-300 translate-y-0 opacity-100 ${toast.type === 'success' ? 'bg-emerald-600' : toast.type === 'error' ? 'bg-red-600' : 'bg-blue-600'}`}>{toast.type === 'success' ? <CheckCircle size={18} /> : <Settings size={18} className="animate-spin" />}{toast.message}</div>))}
       </div>
+
+      {/* --- MODAL EDIT LOKASI --- */}
+      {isEditLokasiModalOpen && editLokasiData && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-lg w-full max-w-md overflow-hidden">
+            <div className="flex justify-between items-center p-4 border-b border-slate-100 bg-slate-50">
+              <div>
+                <h3 className="font-bold text-lg text-slate-800">Edit Lokasi Satkoryon</h3>
+                <p className="text-xs text-blue-600 font-bold uppercase mt-1">{editLokasiData.kecamatan}</p>
+              </div>
+              <button onClick={() => setIsEditLokasiModalOpen(false)} className="text-slate-400 hover:text-slate-600"><X size={20}/></button>
+            </div>
+            <form onSubmit={submitEditLokasi} className="p-5 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Nama Tempat Kegiatan</label>
+                <input required type="text" value={editLokasiData.tempat} onChange={e => setEditLokasiData({...editLokasiData, tempat: e.target.value})} className="w-full border border-slate-200 rounded-lg p-3 text-sm focus:border-blue-500" placeholder="Contoh: Gedung MWC NU..." />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Titik Koordinat (Latitude, Longitude)</label>
+                <input type="text" value={editLokasiData.koordinat} onChange={e => setEditLokasiData({...editLokasiData, koordinat: e.target.value})} className="w-full border border-slate-200 rounded-lg p-3 text-sm focus:border-blue-500 font-mono" placeholder="-6.8898, 109.6745" />
+                <p className="text-[10px] text-slate-400 mt-1.5 leading-relaxed">Buka Google Maps, cari lokasi, klik kanan di peta (atau tahan layar di HP), lalu Salin (Copy) angkanya ke kotak ini.</p>
+              </div>
+              <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-100">
+                <button type="button" onClick={() => setIsEditLokasiModalOpen(false)} className="px-4 py-2 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg">Batal</button>
+                <button type="submit" className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg flex items-center gap-2">Simpan Lokasi</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* --- MODAL GANTI PASSWORD PELATIH --- */}
       {isChangePassModalOpen && (
@@ -1225,22 +1227,10 @@ export default function App() {
             </div>
             <form onSubmit={submitChangePassword} className="p-5 space-y-4">
               {changePassError && <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm text-center font-medium border border-red-100">{changePassError}</div>}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Password Lama</label>
-                <input required type="password" value={changePassData.oldPass} onChange={e => setChangePassData({...changePassData, oldPass: e.target.value})} className="w-full border border-slate-200 rounded-lg p-3 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" placeholder="Masukkan password saat ini" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Password Baru</label>
-                <input required type="password" value={changePassData.newPass} onChange={e => setChangePassData({...changePassData, newPass: e.target.value})} className="w-full border border-slate-200 rounded-lg p-3 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" placeholder="Minimal 6 karakter" minLength="6" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Konfirmasi Password Baru</label>
-                <input required type="password" value={changePassData.confirmPass} onChange={e => setChangePassData({...changePassData, confirmPass: e.target.value})} className="w-full border border-slate-200 rounded-lg p-3 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" placeholder="Ulangi password baru" minLength="6" />
-              </div>
-              <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-100">
-                <button type="button" onClick={() => { setIsChangePassModalOpen(false); setChangePassError(''); }} className="px-4 py-2 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg">Batal</button>
-                <button type="submit" className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg">Simpan Password</button>
-              </div>
+              <div><label className="block text-sm font-medium text-slate-700 mb-1">Password Lama</label><input required type="password" value={changePassData.oldPass} onChange={e => setChangePassData({...changePassData, oldPass: e.target.value})} className="w-full border border-slate-200 rounded-lg p-3 text-sm focus:border-blue-500" /></div>
+              <div><label className="block text-sm font-medium text-slate-700 mb-1">Password Baru</label><input required type="password" value={changePassData.newPass} onChange={e => setChangePassData({...changePassData, newPass: e.target.value})} className="w-full border border-slate-200 rounded-lg p-3 text-sm focus:border-blue-500" minLength="6" /></div>
+              <div><label className="block text-sm font-medium text-slate-700 mb-1">Konfirmasi Password Baru</label><input required type="password" value={changePassData.confirmPass} onChange={e => setChangePassData({...changePassData, confirmPass: e.target.value})} className="w-full border border-slate-200 rounded-lg p-3 text-sm focus:border-blue-500" minLength="6" /></div>
+              <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-100"><button type="button" onClick={() => { setIsChangePassModalOpen(false); setChangePassError(''); }} className="px-4 py-2 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg">Batal</button><button type="submit" className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg">Simpan Password</button></div>
             </form>
           </div>
         </div>
@@ -1338,18 +1328,20 @@ export default function App() {
                   </div>
                   <div><label className="block text-sm font-medium text-slate-700 mb-1">No. WA</label><input required type="text" value={newJadwal.waPelatih} onChange={e => setNewJadwal({...newJadwal, waPelatih: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" placeholder="Otomatis terisi..." /></div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                
+                {/* PERUBAHAN: Hapus Input Tempat & Koordinat, Ganti Keterangan */}
+                <div className="col-span-2 bg-blue-50 border border-blue-100 p-3 rounded-lg flex items-start gap-3">
+                  <MapPin className="text-blue-500 shrink-0 mt-0.5" size={18} />
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Satkoryon (Kecamatan)</label>
-                    <select required value={newJadwal.kecamatan} onChange={e => setNewJadwal({...newJadwal, kecamatan: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500">
+                    <label className="block text-sm font-bold text-blue-800 mb-1">Pilih Satkoryon / Kecamatan</label>
+                    <select required value={newJadwal.kecamatan} onChange={e => setNewJadwal({...newJadwal, kecamatan: e.target.value})} className="w-full border border-blue-200 rounded-lg p-2 text-sm focus:border-blue-500 font-medium">
                       {daftarKecamatan.map(kec => (<option key={kec} value={kec}>{kec}</option>))}
                     </select>
+                    <p className="text-[10px] text-blue-600 mt-2 font-medium">Lokasi dan Titik GPS akan otomatis mengikuti pengaturan di menu <b>Master Titik Lokasi</b>.</p>
                   </div>
-                  <div><label className="block text-sm font-medium text-slate-700 mb-1">Nama Tempat</label><input required type="text" value={newJadwal.tempat} onChange={e => setNewJadwal({...newJadwal, tempat: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" placeholder="Lokasi pelatihan..." /></div>
                 </div>
-                <div><label className="block text-sm font-medium text-slate-700 mb-1">Titik Koordinat Lokasi (Penting untuk GPS)</label><input required type="text" value={newJadwal.koordinat} onChange={e => setNewJadwal({...newJadwal, koordinat: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" placeholder="-6.8898, 109.6745" /></div>
                 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 gap-4 mt-2">
                   <div><label className="block text-sm font-medium text-slate-700 mb-1">Tanggal Pelatihan</label><input required type="date" value={newJadwal.tanggal} onChange={e => setNewJadwal({...newJadwal, tanggal: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" /></div>
                   
                   {/* Sembunyikan Kuota jika Piket */}
@@ -1408,17 +1400,20 @@ export default function App() {
                   </div>
                   <div><label className="block text-sm font-medium text-slate-700 mb-1">No. WA Pemateri</label><input required type="text" value={editJadwalData.waPelatih} onChange={e => setEditJadwalData({...editJadwalData, waPelatih: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" /></div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+
+                {/* PERUBAHAN: Hapus Input Tempat & Koordinat, Ganti Keterangan */}
+                <div className="col-span-2 bg-blue-50 border border-blue-100 p-3 rounded-lg flex items-start gap-3">
+                  <MapPin className="text-blue-500 shrink-0 mt-0.5" size={18} />
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Satkoryon (Kecamatan)</label>
-                    <select required value={editJadwalData.kecamatan} onChange={e => setEditJadwalData({...editJadwalData, kecamatan: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500">
+                    <label className="block text-sm font-bold text-blue-800 mb-1">Ubah Satkoryon / Kecamatan</label>
+                    <select required value={editJadwalData.kecamatan} onChange={e => setEditJadwalData({...editJadwalData, kecamatan: e.target.value})} className="w-full border border-blue-200 rounded-lg p-2 text-sm focus:border-blue-500 font-medium">
                       {daftarKecamatan.map(kec => (<option key={kec} value={kec}>{kec}</option>))}
                     </select>
+                    <p className="text-[10px] text-blue-600 mt-2 font-medium">Lokasi dan Titik GPS akan mengikuti pengaturan di menu <b>Master Titik Lokasi</b>.</p>
                   </div>
-                  <div><label className="block text-sm font-medium text-slate-700 mb-1">Nama Tempat</label><input required type="text" value={editJadwalData.tempat} onChange={e => setEditJadwalData({...editJadwalData, tempat: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" /></div>
                 </div>
-                <div><label className="block text-sm font-medium text-slate-700 mb-1">Titik Koordinat Lokasi</label><input required type="text" value={editJadwalData.koordinat} onChange={e => setEditJadwalData({...editJadwalData, koordinat: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" placeholder="-6.8898, 109.6745" /></div>
-                <div className="grid grid-cols-2 gap-4">
+                
+                <div className="grid grid-cols-2 gap-4 mt-2">
                   <div><label className="block text-sm font-medium text-slate-700 mb-1">Tanggal Pelatihan</label><input required type="date" value={editJadwalData.tanggal} onChange={e => setEditJadwalData({...editJadwalData, tanggal: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm focus:border-blue-500" /></div>
                   
                   {(!editJadwalData.jenis || editJadwalData.jenis === 'Materi') ? (
